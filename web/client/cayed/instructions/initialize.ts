@@ -24,15 +24,15 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyUint8Array,
-} from '@solana/kit'
-import { CAYED_PROGRAM_ADDRESS } from '../programs'
+} from '@solana/kit';
+import { CAYED_PROGRAM_ADDRESS } from '../programs';
 
 export const INITIALIZE_DISCRIMINATOR = new Uint8Array([
   175, 175, 109, 31, 13, 152, 155, 237,
-])
+]);
 
 export function getInitializeDiscriminatorBytes() {
-  return fixEncoderSize(getBytesEncoder(), 8).encode(INITIALIZE_DISCRIMINATOR)
+  return fixEncoderSize(getBytesEncoder(), 8).encode(INITIALIZE_DISCRIMINATOR);
 }
 
 export type InitializeInstruction<
@@ -40,21 +40,21 @@ export type InitializeInstruction<
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
-  InstructionWithAccounts<TRemainingAccounts>
+  InstructionWithAccounts<TRemainingAccounts>;
 
-export type InitializeInstructionData = { discriminator: ReadonlyUint8Array }
+export type InitializeInstructionData = { discriminator: ReadonlyUint8Array };
 
-export type InitializeInstructionDataArgs = {}
+export type InitializeInstructionDataArgs = {};
 
 export function getInitializeInstructionDataEncoder(): FixedSizeEncoder<InitializeInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([['discriminator', fixEncoderSize(getBytesEncoder(), 8)]]),
     value => ({ ...value, discriminator: INITIALIZE_DISCRIMINATOR })
-  )
+  );
 }
 
 export function getInitializeInstructionDataDecoder(): FixedSizeDecoder<InitializeInstructionData> {
-  return getStructDecoder([['discriminator', fixDecoderSize(getBytesDecoder(), 8)]])
+  return getStructDecoder([['discriminator', fixDecoderSize(getBytesDecoder(), 8)]]);
 }
 
 export function getInitializeInstructionDataCodec(): FixedSizeCodec<
@@ -64,26 +64,26 @@ export function getInitializeInstructionDataCodec(): FixedSizeCodec<
   return combineCodec(
     getInitializeInstructionDataEncoder(),
     getInitializeInstructionDataDecoder()
-  )
+  );
 }
 
-export type InitializeInput = {}
+export type InitializeInput = {};
 
 export function getInitializeInstruction<
   TProgramAddress extends Address = typeof CAYED_PROGRAM_ADDRESS,
 >(config?: { programAddress?: TProgramAddress }): InitializeInstruction<TProgramAddress> {
   // Program address.
-  const programAddress = config?.programAddress ?? CAYED_PROGRAM_ADDRESS
+  const programAddress = config?.programAddress ?? CAYED_PROGRAM_ADDRESS;
 
   return Object.freeze({
     data: getInitializeInstructionDataEncoder().encode({}),
     programAddress,
-  } as InitializeInstruction<TProgramAddress>)
+  } as InitializeInstruction<TProgramAddress>);
 }
 
 export type ParsedInitializeInstruction<
   TProgram extends string = typeof CAYED_PROGRAM_ADDRESS,
-> = { programAddress: Address<TProgram>; data: InitializeInstructionData }
+> = { programAddress: Address<TProgram>; data: InitializeInstructionData };
 
 export function parseInitializeInstruction<TProgram extends string>(
   instruction: Instruction<TProgram> & InstructionWithData<ReadonlyUint8Array>
@@ -91,5 +91,5 @@ export function parseInitializeInstruction<TProgram extends string>(
   return {
     programAddress: instruction.programAddress,
     data: getInitializeInstructionDataDecoder().decode(instruction.data),
-  }
+  };
 }

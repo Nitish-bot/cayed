@@ -14,14 +14,14 @@ import {
   type Instruction,
   type InstructionWithData,
   type ReadonlyUint8Array,
-} from '@solana/kit'
+} from '@solana/kit';
 import {
   parseInitializeInstruction,
   type ParsedInitializeInstruction,
-} from '../instructions'
+} from '../instructions';
 
 export const CAYED_PROGRAM_ADDRESS =
-  '3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN' as Address<'3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN'>
+  '3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN' as Address<'3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN'>;
 
 export enum CayedInstruction {
   Initialize,
@@ -30,7 +30,7 @@ export enum CayedInstruction {
 export function identifyCayedInstruction(
   instruction: { data: ReadonlyUint8Array } | ReadonlyUint8Array
 ): CayedInstruction {
-  const data = 'data' in instruction ? instruction.data : instruction
+  const data = 'data' in instruction ? instruction.data : instruction;
   if (
     containsBytes(
       data,
@@ -40,31 +40,31 @@ export function identifyCayedInstruction(
       0
     )
   ) {
-    return CayedInstruction.Initialize
+    return CayedInstruction.Initialize;
   }
   throw new Error(
     'The provided instruction could not be identified as a cayed instruction.'
-  )
+  );
 }
 
 export type ParsedCayedInstruction<
   TProgram extends string = '3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN',
 > = {
-  instructionType: CayedInstruction.Initialize
-} & ParsedInitializeInstruction<TProgram>
+  instructionType: CayedInstruction.Initialize;
+} & ParsedInitializeInstruction<TProgram>;
 
 export function parseCayedInstruction<TProgram extends string>(
   instruction: Instruction<TProgram> & InstructionWithData<ReadonlyUint8Array>
 ): ParsedCayedInstruction<TProgram> {
-  const instructionType = identifyCayedInstruction(instruction)
+  const instructionType = identifyCayedInstruction(instruction);
   switch (instructionType) {
     case CayedInstruction.Initialize: {
       return {
         instructionType: CayedInstruction.Initialize,
         ...parseInitializeInstruction(instruction),
-      }
+      };
     }
     default:
-      throw new Error(`Unrecognized instruction type: ${instructionType as string}`)
+      throw new Error(`Unrecognized instruction type: ${instructionType as string}`);
   }
 }

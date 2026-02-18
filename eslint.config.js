@@ -1,12 +1,12 @@
-import js from '@eslint/js'
-import { defineConfig } from 'eslint/config'
-import prettier from 'eslint-config-prettier'
-import importPlugin from 'eslint-plugin-import'
-import jsxA11y from 'eslint-plugin-jsx-a11y'
-import react from 'eslint-plugin-react'
-import reactHooks from 'eslint-plugin-react-hooks'
-import globals from 'globals'
-import tseslint from 'typescript-eslint'
+import js from '@eslint/js';
+import { defineConfig } from 'eslint/config';
+import prettier from 'eslint-config-prettier';
+import importPlugin from 'eslint-plugin-import';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   prettier,
@@ -121,4 +121,4 @@ export default defineConfig([
   {
     ignores: ['target/**', 'node_modules/**', 'web/client', 'web/vite.config.ts'],
   },
-])
+]);

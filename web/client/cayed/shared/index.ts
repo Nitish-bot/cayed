@@ -16,7 +16,7 @@ import {
   type ProgramDerivedAddress,
   type TransactionSigner,
   upgradeRoleToSigner,
-} from '@solana/kit'
+} from '@solana/kit';
 
 /**
  * Asserts that the given value is not null or undefined.
@@ -24,9 +24,9 @@ import {
  */
 export function expectSome<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) {
-    throw new Error('Expected a value but received null or undefined.')
+    throw new Error('Expected a value but received null or undefined.');
   }
-  return value
+  return value;
 }
 
 /**
@@ -37,15 +37,15 @@ export function expectAddress<T extends string = string>(
   value: Address<T> | ProgramDerivedAddress<T> | TransactionSigner<T> | null | undefined
 ): Address<T> {
   if (!value) {
-    throw new Error('Expected a Address.')
+    throw new Error('Expected a Address.');
   }
   if (typeof value === 'object' && 'address' in value) {
-    return value.address
+    return value.address;
   }
   if (Array.isArray(value)) {
-    return value[0] as Address<T>
+    return value[0] as Address<T>;
   }
-  return value as Address<T>
+  return value as Address<T>;
 }
 
 /**
@@ -56,9 +56,9 @@ export function expectProgramDerivedAddress<T extends string = string>(
   value: Address<T> | ProgramDerivedAddress<T> | TransactionSigner<T> | null | undefined
 ): ProgramDerivedAddress<T> {
   if (!value || !Array.isArray(value) || !isProgramDerivedAddress(value)) {
-    throw new Error('Expected a ProgramDerivedAddress.')
+    throw new Error('Expected a ProgramDerivedAddress.');
   }
-  return value
+  return value;
 }
 
 /**
@@ -69,9 +69,9 @@ export function expectTransactionSigner<T extends string = string>(
   value: Address<T> | ProgramDerivedAddress<T> | TransactionSigner<T> | null | undefined
 ): TransactionSigner<T> {
   if (!value || !isTransactionSigner(value)) {
-    throw new Error('Expected a TransactionSigner.')
+    throw new Error('Expected a TransactionSigner.');
   }
-  return value
+  return value;
 }
 
 /**
@@ -86,17 +86,17 @@ export type ResolvedAccount<
     | TransactionSigner<T>
     | null,
 > = {
-  isWritable: boolean
-  value: U
-}
+  isWritable: boolean;
+  value: U;
+};
 
 /**
  * Defines an instruction that stores additional bytes on-chain.
  * @internal
  */
 export type InstructionWithByteDelta = {
-  byteDelta: number
-}
+  byteDelta: number;
+};
 
 /**
  * Get account metas and signers from resolved accounts.
@@ -108,22 +108,22 @@ export function getAccountMetaFactory(
 ) {
   return (account: ResolvedAccount): AccountMeta | AccountSignerMeta | undefined => {
     if (!account.value) {
-      if (optionalAccountStrategy === 'omitted') return
+      if (optionalAccountStrategy === 'omitted') return;
       return Object.freeze({
         address: programAddress,
         role: AccountRole.READONLY,
-      })
+      });
     }
 
-    const writableRole = account.isWritable ? AccountRole.WRITABLE : AccountRole.READONLY
+    const writableRole = account.isWritable ? AccountRole.WRITABLE : AccountRole.READONLY;
     return Object.freeze({
       address: expectAddress(account.value),
       role: isTransactionSigner(account.value)
         ? upgradeRoleToSigner(writableRole)
         : writableRole,
       ...(isTransactionSigner(account.value) ? { signer: account.value } : {}),
-    })
-  }
+    });
+  };
 }
 
 export function isTransactionSigner<TAddress extends string = string>(
@@ -134,5 +134,5 @@ export function isTransactionSigner<TAddress extends string = string>(
     typeof value === 'object' &&
     'address' in value &&
     kitIsTransactionSigner(value)
-  )
+  );
 }
