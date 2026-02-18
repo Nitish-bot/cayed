@@ -1,0 +1,6 @@
+[loader]
+".ts" = "ts"
+".tsx" = "tsx"
+
+[alias]
+"@client/" = "./web/client/"
