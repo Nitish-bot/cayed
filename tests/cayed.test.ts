@@ -33,8 +33,9 @@ describe('cayed', () => {
 
   const baseUrl = 'http://127.0.0.1:8899'
   const baseWsUrl = 'ws://127.0.0.1:8900'
-  const teeUrl = 'https://tee.magicblock.app'
-  const teeWsUrl = 'ws://tee.magicblock.app' 
+  const teeUrl = 'http://127.0.0.1:7799'
+  const teeWsUrl = 'ws://127.0.0.1:7800'
+  // Local validator
   const ER_VALIDATOR = address('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
   
   beforeAll(async () => {
