@@ -8,6 +8,7 @@ import { address, assertAccountExists, getAddressEncoder, type Address, type Key
 import { describe, beforeAll, it, expect } from 'bun:test'
 import { connect, type Connection } from 'solana-kite';
 
+// eslint-disable-next-line
 const stringify = (object: unknown) => {
   const bigIntReplacer = (key: string, value: unknown) =>
     typeof value === "bigint" ? value.toString() : value;
@@ -92,9 +93,10 @@ describe('cayed', () => {
 
     const sig = await baseConnection.sendTransactionFromInstructions({
       feePayer: authority,
-      instructions: [ix]
+      instructions: [ix],
+      commitment: 'confirmed'
     })
-
+    
     const getConfig = baseConnection.getAccountsFactory(
       CAYED_PROGRAM_ADDRESS,
       CONFIG_DISCRIMINATOR,
