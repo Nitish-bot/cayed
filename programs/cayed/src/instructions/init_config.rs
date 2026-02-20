@@ -11,19 +11,19 @@ pub struct InitConfig<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-    init,
-    payer = authority,
-    seeds = [b"config"],
-    space = Config::INIT_SPACE,
-    bump,
-  )]
+        init,
+        payer = authority,
+        seeds = [b"config"],
+        space = Config::INIT_SPACE,
+        bump,
+    )]
     pub config: Account<'info, Config>,
 
     #[account(
-    mut,
-    seeds = [b"vault"],
-    bump,
-  )]
+        mut,
+        seeds = [b"vault"],
+        bump,
+    )]
     pub vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
@@ -32,7 +32,6 @@ pub struct InitConfig<'info> {
 impl<'info> InitConfig<'info> {
     pub fn init_config(
         &mut self,
-        vault: Pubkey,
         max_grid_size: u8,
         fee: u16,
         bumps: InitConfigBumps,
@@ -41,7 +40,7 @@ impl<'info> InitConfig<'info> {
 
         self.config.set_inner(Config {
             authority: self.authority.key(),
-            vault,
+            vault: self.vault.key(),
             max_grid_size,
             fee,
             bump: bumps.config,

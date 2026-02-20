@@ -4,6 +4,7 @@ use anchor_lang::{
 };
 
 use crate::state::{Config, Game, GameStatus, PlayerBoard};
+use crate::errors::CayedError;
 
 #[derive(Accounts)]
 #[instruction(id: u64)]
@@ -12,32 +13,32 @@ pub struct CreateGame<'info> {
     pub player: Signer<'info>,
 
     #[account(
-    init,
-    payer = player,
-    space = Game::INIT_SPACE,
-    seeds = [b"game", id.to_le_bytes().as_ref()],
-    bump,
-  )]
+        init,
+        payer = player,
+        space = Game::INIT_SPACE,
+        seeds = [b"game", id.to_le_bytes().as_ref()],
+        bump,
+    )]
     pub game: Account<'info, Game>,
     #[account(
-    init,
-    payer = player,
-    space = PlayerBoard::INIT_SPACE,
-    seeds = [b"player1", id.to_le_bytes().as_ref()],
-    bump,
-  )]
+        init,
+        payer = player,
+        space = PlayerBoard::INIT_SPACE,
+        seeds = [b"player", id.to_le_bytes().as_ref(), player.key().as_ref()],
+        bump,
+    )]
     pub player_board: Account<'info, PlayerBoard>,
 
     #[account(
-    seeds = [b"config"],
-    bump
-  )]
+        seeds = [b"config"],
+        bump
+    )]
     pub config: Account<'info, Config>,
     #[account(
-    mut,
-    seeds = [b"vault"],
-    bump,
-  )]
+        mut,
+        seeds = [b"vault"],
+        bump,
+    )]
     pub vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
@@ -51,13 +52,21 @@ impl<'info> CreateGame<'info> {
         wager: Option<u64>,
         bumps: CreateGameBumps,
     ) -> Result<()> {
-        self.deposit(wager)?;
+        if wager.is_some() {
+            require!(wager.unwrap().ge(&100_000u64), CayedError::MinimumWager);
+            self.deposit(wager)?;
+        }
+        // Randomly decide who moves first
+        let first_move = id % 2 == 0;
 
         self.game.set_inner(Game {
             id,
             grid_size,
+            player_1: self.player.key(),
+            player_2: None,
             revealed_ships_player_1: vec![],
             revealed_ships_player_2: vec![],
+            next_move_player_1: first_move,
             wager,
             status: GameStatus::AwaitingPlayerTwo,
             creator_pubkey: self.player.key(),
@@ -73,10 +82,7 @@ impl<'info> CreateGame<'info> {
     }
 
     pub fn deposit(&mut self, wager: Option<u64>) -> Result<()> {
-        let amount = wager.unwrap_or(0);
-        if amount == 0 {
-            return Ok(());
-        }
+        let amount = wager.unwrap();
 
         let cpi_accounts = Transfer {
             from: self.player.to_account_info(),

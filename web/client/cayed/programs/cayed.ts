@@ -7,6 +7,7 @@
  */
 
 import {
+  assertIsInstructionWithAccounts,
   containsBytes,
   fixEncoderSize,
   getBytesEncoder,
@@ -14,57 +15,157 @@ import {
   type Instruction,
   type InstructionWithData,
   type ReadonlyUint8Array,
-} from '@solana/kit';
+} from "@solana/kit";
 import {
-  parseInitializeInstruction,
-  type ParsedInitializeInstruction,
-} from '../instructions';
+  parseCreateGameInstruction,
+  parseInitConfigInstruction,
+  parseJoinGameInstruction,
+  type ParsedCreateGameInstruction,
+  type ParsedInitConfigInstruction,
+  type ParsedJoinGameInstruction,
+} from "../instructions";
 
 export const CAYED_PROGRAM_ADDRESS =
-  '3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN' as Address<'3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN'>;
+  "3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN" as Address<"3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN">;
 
-export enum CayedInstruction {
-  Initialize,
+export enum CayedAccount {
+  Config,
+  Game,
+  PlayerBoard,
 }
 
-export function identifyCayedInstruction(
-  instruction: { data: ReadonlyUint8Array } | ReadonlyUint8Array
-): CayedInstruction {
-  const data = 'data' in instruction ? instruction.data : instruction;
+export function identifyCayedAccount(
+  account: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
+): CayedAccount {
+  const data = "data" in account ? account.data : account;
   if (
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
-        new Uint8Array([175, 175, 109, 31, 13, 152, 155, 237])
+        new Uint8Array([155, 12, 170, 224, 30, 250, 204, 130]),
       ),
-      0
+      0,
     )
   ) {
-    return CayedInstruction.Initialize;
+    return CayedAccount.Config;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([27, 90, 166, 125, 74, 100, 121, 18]),
+      ),
+      0,
+    )
+  ) {
+    return CayedAccount.Game;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([120, 6, 158, 230, 127, 175, 86, 173]),
+      ),
+      0,
+    )
+  ) {
+    return CayedAccount.PlayerBoard;
   }
   throw new Error(
-    'The provided instruction could not be identified as a cayed instruction.'
+    "The provided account could not be identified as a cayed account.",
+  );
+}
+
+export enum CayedInstruction {
+  CreateGame,
+  InitConfig,
+  JoinGame,
+}
+
+export function identifyCayedInstruction(
+  instruction: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
+): CayedInstruction {
+  const data = "data" in instruction ? instruction.data : instruction;
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([124, 69, 75, 66, 184, 220, 72, 206]),
+      ),
+      0,
+    )
+  ) {
+    return CayedInstruction.CreateGame;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([23, 235, 115, 232, 168, 96, 1, 231]),
+      ),
+      0,
+    )
+  ) {
+    return CayedInstruction.InitConfig;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([107, 112, 18, 38, 56, 173, 60, 128]),
+      ),
+      0,
+    )
+  ) {
+    return CayedInstruction.JoinGame;
+  }
+  throw new Error(
+    "The provided instruction could not be identified as a cayed instruction.",
   );
 }
 
 export type ParsedCayedInstruction<
-  TProgram extends string = '3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN',
-> = {
-  instructionType: CayedInstruction.Initialize;
-} & ParsedInitializeInstruction<TProgram>;
+  TProgram extends string = "3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN",
+> =
+  | ({
+      instructionType: CayedInstruction.CreateGame;
+    } & ParsedCreateGameInstruction<TProgram>)
+  | ({
+      instructionType: CayedInstruction.InitConfig;
+    } & ParsedInitConfigInstruction<TProgram>)
+  | ({
+      instructionType: CayedInstruction.JoinGame;
+    } & ParsedJoinGameInstruction<TProgram>);
 
 export function parseCayedInstruction<TProgram extends string>(
-  instruction: Instruction<TProgram> & InstructionWithData<ReadonlyUint8Array>
+  instruction: Instruction<TProgram> & InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCayedInstruction<TProgram> {
   const instructionType = identifyCayedInstruction(instruction);
   switch (instructionType) {
-    case CayedInstruction.Initialize: {
+    case CayedInstruction.CreateGame: {
+      assertIsInstructionWithAccounts(instruction);
       return {
-        instructionType: CayedInstruction.Initialize,
-        ...parseInitializeInstruction(instruction),
+        instructionType: CayedInstruction.CreateGame,
+        ...parseCreateGameInstruction(instruction),
+      };
+    }
+    case CayedInstruction.InitConfig: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: CayedInstruction.InitConfig,
+        ...parseInitConfigInstruction(instruction),
+      };
+    }
+    case CayedInstruction.JoinGame: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: CayedInstruction.JoinGame,
+        ...parseJoinGameInstruction(instruction),
       };
     }
     default:
-      throw new Error(`Unrecognized instruction type: ${instructionType as string}`);
+      throw new Error(
+        `Unrecognized instruction type: ${instructionType as string}`,
+      );
   }
 }

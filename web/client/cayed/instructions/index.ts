@@ -6,4 +6,6 @@
  * @see https://github.com/codama-idl/codama
  */
 
-export * from './initialize';
+export * from "./createGame";
+export * from "./initConfig";
+export * from "./joinGame";

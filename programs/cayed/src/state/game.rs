@@ -5,10 +5,13 @@ use anchor_lang::prelude::*;
 pub struct Game {
     pub id: u64,
     pub grid_size: u8,
+    pub player_1: Pubkey,
+    pub player_2: Option<Pubkey>,
     #[max_len(5)]
     pub revealed_ships_player_1: Vec<ShipCoordinates>,
     #[max_len(5)]
     pub revealed_ships_player_2: Vec<ShipCoordinates>,
+    pub next_move_player_1: bool,  
     pub wager: Option<u64>,
     pub status: GameStatus,
     pub creator_pubkey: Pubkey,

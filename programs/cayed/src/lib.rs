@@ -14,12 +14,11 @@ pub mod cayed {
 
     pub fn init_config(
         ctx: Context<InitConfig>,
-        vault: Pubkey,
         max_grid_size: u8,
         fee: u16,
     ) -> Result<()> {
         ctx.accounts
-            .init_config(vault, max_grid_size, fee, ctx.bumps)?;
+            .init_config(max_grid_size, fee, ctx.bumps)?;
         Ok(())
     }
 
@@ -30,6 +29,13 @@ pub mod cayed {
         wager: Option<u64>,
     ) -> Result<()> {
         ctx.accounts.create_game(id, grid_size, wager, ctx.bumps)?;
+        Ok(())
+    }
+
+    pub fn join_game(
+        ctx: Context<JoinGame>,
+    ) -> Result<()> {
+        ctx.accounts.join_game()?;
         Ok(())
     }
 }
