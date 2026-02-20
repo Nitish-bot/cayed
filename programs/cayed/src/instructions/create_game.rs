@@ -15,7 +15,7 @@ pub struct CreateGame<'info> {
     #[account(
         init,
         payer = player,
-        space = Game::INIT_SPACE,
+        space = 8 + Game::INIT_SPACE,
         seeds = [b"game", id.to_le_bytes().as_ref()],
         bump,
     )]

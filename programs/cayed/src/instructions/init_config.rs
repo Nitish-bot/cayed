@@ -1,9 +1,6 @@
-use anchor_lang::{
-    prelude::*,
-    system_program::{transfer, Transfer},
-};
+use anchor_lang::prelude::*;
 
-use crate::state::config::Config;
+use crate::state::{Vault, config::Config};
 
 #[derive(Accounts)]
 pub struct InitConfig<'info> {
@@ -14,17 +11,19 @@ pub struct InitConfig<'info> {
         init,
         payer = authority,
         seeds = [b"config"],
-        space = Config::INIT_SPACE,
+        space = 8 + Config::INIT_SPACE,
         bump,
     )]
     pub config: Account<'info, Config>,
 
     #[account(
-        mut,
+        init,
+        payer = authority,
+        space = 8 + Vault::INIT_SPACE,
         seeds = [b"vault"],
         bump,
     )]
-    pub vault: SystemAccount<'info>,
+    pub vault: Account<'info, Vault>,
 
     pub system_program: Program<'info, System>,
 }
@@ -36,7 +35,9 @@ impl<'info> InitConfig<'info> {
         fee: u16,
         bumps: InitConfigBumps,
     ) -> Result<()> {
-        self.create_vault()?;
+        self.vault.set_inner(Vault {
+            authority: self.authority.key()
+        });
 
         self.config.set_inner(Config {
             authority: self.authority.key(),
@@ -47,18 +48,5 @@ impl<'info> InitConfig<'info> {
         });
 
         Ok(())
-    }
-
-    pub fn create_vault(&mut self) -> Result<()> {
-        let rent = Rent::get()?.minimum_balance(0);
-
-        let cpi_accounts = Transfer {
-            from: self.authority.to_account_info(),
-            to: self.vault.to_account_info(),
-        };
-
-        let cpi_ctx = CpiContext::new(self.system_program.to_account_info(), cpi_accounts);
-
-        transfer(cpi_ctx, rent)
     }
 }

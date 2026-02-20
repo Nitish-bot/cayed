@@ -8,6 +8,12 @@ import { address, assertAccountExists, getAddressEncoder, type Address, type Key
 import { describe, beforeAll, it, expect } from 'bun:test'
 import { connect, type Connection } from 'solana-kite';
 
+const stringify = (object: unknown) => {
+  const bigIntReplacer = (key: string, value: unknown) =>
+    typeof value === "bigint" ? value.toString() : value;
+  return JSON.stringify(object, bigIntReplacer, 2);
+};
+
 describe('cayed', () => {
   let authority: KeyPairSigner;
   let player1: KeyPairSigner;
@@ -24,12 +30,14 @@ describe('cayed', () => {
 
   const gameId = BigInt(Date.now());
 
+  const baseUrl = 'http://127.0.0.1:8899'
+  const baseWsUrl = 'ws://127.0.0.1:8900'
   const teeUrl = 'https://tee.magicblock.app'
-  const teeWsUrl = 'wss://tee.magicblock.app' 
+  const teeWsUrl = 'ws://tee.magicblock.app' 
   const ER_VALIDATOR = address('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
   
   beforeAll(async () => {
-    baseConnection = connect();
+    baseConnection = connect(baseUrl, baseWsUrl);
     ephemeralConnection = connect(teeUrl, teeWsUrl);
 
     const wallets = await baseConnection.createWallets(3);
@@ -37,7 +45,7 @@ describe('cayed', () => {
     player1 = wallets[1]!;
     player2 = wallets[2]!;
 
-    const configSeeds = ['config'];
+    const configSeeds = [Buffer.from('config')];
     const configPDAAndBump = await baseConnection.getPDAAndBump(
       CAYED_PROGRAM_ADDRESS,
       configSeeds

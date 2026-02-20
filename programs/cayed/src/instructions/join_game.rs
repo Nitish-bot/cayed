@@ -17,7 +17,7 @@ pub struct JoinGame<'info> {
   #[account(
     init,
     payer = player,
-    space = PlayerBoard::INIT_SPACE,
+    space = 8 + PlayerBoard::INIT_SPACE,
     seeds = [b"player", game.id.to_le_bytes().as_ref(), player.key().as_ref()],
     bump,
   )]
