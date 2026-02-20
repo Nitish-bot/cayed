@@ -11,10 +11,9 @@ pub struct Game {
     pub revealed_ships_player_1: Vec<ShipCoordinates>,
     #[max_len(5)]
     pub revealed_ships_player_2: Vec<ShipCoordinates>,
-    pub next_move_player_1: bool,  
-    pub wager: Option<u64>,
+    pub next_move_player_1: bool,
+    pub wager: u64,
     pub status: GameStatus,
-    pub creator_pubkey: Pubkey,
     pub bump: u8,
 }
 

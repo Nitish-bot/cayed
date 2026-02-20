@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{Vault, config::Config};
+use crate::state::{config::Config, Vault};
 
 #[derive(Accounts)]
 pub struct InitConfig<'info> {
@@ -36,7 +36,7 @@ impl<'info> InitConfig<'info> {
         bumps: InitConfigBumps,
     ) -> Result<()> {
         self.vault.set_inner(Vault {
-            authority: self.authority.key()
+            authority: self.authority.key(),
         });
 
         self.config.set_inner(Config {

@@ -1,17 +1,29 @@
 import {
   CAYED_PROGRAM_ADDRESS,
   CONFIG_DISCRIMINATOR,
+  GAME_DISCRIMINATOR,
   getConfigDecoder,
-  getInitConfigInstruction
+  getCreateGameInstruction,
+  getGameDecoder,
+  getInitConfigInstruction,
+  getPlayerBoardDecoder,
+  PLAYER_BOARD_DISCRIMINATOR,
+  type PlayerBoard,
 } from '@client/cayed';
-import { address, assertAccountExists, getAddressEncoder, type Address, type KeyPairSigner } from '@solana/kit';
-import { describe, beforeAll, it, expect } from 'bun:test'
+import {
+  address,
+  assertAccountExists,
+  type Address,
+  type KeyPairSigner,
+  type MaybeAccount,
+} from '@solana/kit';
+import { describe, beforeAll, it, expect } from 'bun:test';
 import { connect, type Connection } from 'solana-kite';
 
 // eslint-disable-next-line
 const stringify = (object: unknown) => {
   const bigIntReplacer = (key: string, value: unknown) =>
-    typeof value === "bigint" ? value.toString() : value;
+    typeof value === 'bigint' ? value.toString() : value;
   return JSON.stringify(object, bigIntReplacer, 2);
 };
 
@@ -19,7 +31,7 @@ describe('cayed', () => {
   let authority: KeyPairSigner;
   let player1: KeyPairSigner;
   let player2: KeyPairSigner;
-  
+
   let configPda: Address;
   let vaultPda: Address;
   let gamePda: Address;
@@ -30,14 +42,18 @@ describe('cayed', () => {
   let ephemeralConnection: Connection;
 
   const gameId = BigInt(Date.now());
+  const gridSize = 4;
+  const wager = BigInt(1_000_000_000 / 10);
 
-  const baseUrl = 'http://127.0.0.1:8899'
-  const baseWsUrl = 'ws://127.0.0.1:8900'
-  const teeUrl = 'http://127.0.0.1:7799'
-  const teeWsUrl = 'ws://127.0.0.1:7800'
+  let getPlayerBoards: () => Promise<MaybeAccount<PlayerBoard, string>[]>;
+
+  const baseUrl = 'http://127.0.0.1:8899';
+  const baseWsUrl = 'ws://127.0.0.1:8900';
+  const teeUrl = 'http://127.0.0.1:7799';
+  const teeWsUrl = 'ws://127.0.0.1:7800';
   // Local validator
   const ER_VALIDATOR = address('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
-  
+
   beforeAll(async () => {
     baseConnection = connect(baseUrl, baseWsUrl);
     ephemeralConnection = connect(teeUrl, teeWsUrl);
@@ -54,34 +70,53 @@ describe('cayed', () => {
     );
     configPda = configPDAAndBump.pda;
 
-    const vaultSeeds = ['vault']
+    const vaultSeeds = ['vault'];
     const vaultPDAAndBump = await baseConnection.getPDAAndBump(
       CAYED_PROGRAM_ADDRESS,
       vaultSeeds
-    )
-    vaultPda = vaultPDAAndBump.pda
+    );
+    vaultPda = vaultPDAAndBump.pda;
 
     const gameSeeds = ['game', gameId];
     const gamePDAAndBump = await baseConnection.getPDAAndBump(
       CAYED_PROGRAM_ADDRESS,
       gameSeeds
-    )
-    gamePda = gamePDAAndBump.pda
+    );
+    gamePda = gamePDAAndBump.pda;
 
     const player1BoardSeeds = ['player', gameId, player1.address];
     const player1BoardPDAAndBump = await baseConnection.getPDAAndBump(
       CAYED_PROGRAM_ADDRESS,
       player1BoardSeeds
-    )
-    player1BoardPda = player1BoardPDAAndBump.pda
+    );
+    player1BoardPda = player1BoardPDAAndBump.pda;
 
     const player2BoardSeeds = ['player', gameId, player2.address];
     const player2BoardPDAAndBump = await baseConnection.getPDAAndBump(
       CAYED_PROGRAM_ADDRESS,
       player2BoardSeeds
-    )
-    player2BoardPda = player2BoardPDAAndBump.pda
-  })
+    );
+    player2BoardPda = player2BoardPDAAndBump.pda;
+
+    getPlayerBoards = baseConnection.getAccountsFactory(
+      CAYED_PROGRAM_ADDRESS,
+      PLAYER_BOARD_DISCRIMINATOR,
+      getPlayerBoardDecoder()
+    );
+
+    console.log('========= Addresses =========');
+    console.log(`Authority: ${authority.address}`);
+    console.log(`Player 1: ${player1.address}`);
+    console.log(`Player 2: ${player2.address}`);
+    console.log(`Config PDA: ${configPda}`);
+    console.log(`Vault PDA: ${vaultPda}`);
+    console.log(`Game PDA: ${gamePda}`);
+    console.log(`Player 1 Board PDA: ${player1BoardPda}`);
+    console.log(`Player 2 Board PDA: ${player2BoardPda}`);
+    console.log(`Program Address: ${CAYED_PROGRAM_ADDRESS}`);
+    console.log(`ER Validator: ${ER_VALIDATOR}`);
+    console.log('===============================');
+  });
 
   it('inits config', async () => {
     const ix = getInitConfigInstruction({
@@ -90,25 +125,74 @@ describe('cayed', () => {
       vault: vaultPda,
       maxGridSize: 10,
       fee: 100, // Basis points: 1%
-    })
+    });
 
     const sig = await baseConnection.sendTransactionFromInstructions({
       feePayer: authority,
       instructions: [ix],
-      commitment: 'confirmed'
-    })
-    
-    const getConfig = baseConnection.getAccountsFactory(
+      commitment: 'confirmed',
+    });
+
+    const getConfigs = baseConnection.getAccountsFactory(
       CAYED_PROGRAM_ADDRESS,
       CONFIG_DISCRIMINATOR,
       getConfigDecoder()
-    )
-    const configAccounts = await getConfig();
-    expect(configAccounts.length == 1, 'More than one config accounts should not exist')
+    );
+    const configAccounts = await getConfigs();
+    expect(configAccounts.length == 1, 'More than one config accounts should not exist');
 
-    const config = configAccounts[0]!
-    assertAccountExists(config)
-    
-    console.log(`Initted config with sig: ${sig}`)
-  })
+    const config = configAccounts[0]!;
+    assertAccountExists(config);
+
+    expect(
+      config.data.authority == authority.address,
+      'Config should have correct authority'
+    );
+    console.log(`Initted config with sig: ${sig}`);
+  });
+
+  it('creates game', async () => {
+    const ix = getCreateGameInstruction({
+      player: player1,
+      game: gamePda,
+      playerBoard: player1BoardPda,
+      config: configPda,
+      vault: vaultPda,
+      id: gameId,
+      gridSize,
+      wager,
+    });
+
+    const sig = await baseConnection.sendTransactionFromInstructions({
+      feePayer: player1,
+      instructions: [ix],
+      commitment: 'confirmed',
+    });
+
+    const getGames = baseConnection.getAccountsFactory(
+      CAYED_PROGRAM_ADDRESS,
+      GAME_DISCRIMINATOR,
+      getGameDecoder()
+    );
+    const gameAccounts = await getGames();
+    expect(gameAccounts.length == 1, 'More than one game accounts should not exist');
+
+    const game = gameAccounts[0]!;
+    assertAccountExists(game);
+    expect(
+      game.data.player1 == player1.address,
+      'Game account should be initted with correct player1'
+    );
+
+    const playerBoardAccounts = await getPlayerBoards();
+    expect(
+      playerBoardAccounts.length == 1,
+      'More than one player board accounts should not exist'
+    );
+
+    const player1Board = playerBoardAccounts[0]!;
+    expect(player1Board.exists, 'Player 1 board should have been initted');
+
+    console.log(`Game created with sig: ${sig}`);
+  });
 });

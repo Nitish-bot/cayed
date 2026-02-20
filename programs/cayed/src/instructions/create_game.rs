@@ -3,8 +3,8 @@ use anchor_lang::{
     system_program::{transfer, Transfer},
 };
 
-use crate::state::{Config, Game, GameStatus, PlayerBoard};
 use crate::errors::CayedError;
+use crate::state::{Config, Game, GameStatus, PlayerBoard, Vault};
 
 #[derive(Accounts)]
 #[instruction(id: u64)]
@@ -39,7 +39,7 @@ pub struct CreateGame<'info> {
         seeds = [b"vault"],
         bump,
     )]
-    pub vault: SystemAccount<'info>,
+    pub vault: Account<'info, Vault>,
 
     pub system_program: Program<'info, System>,
 }
@@ -49,11 +49,11 @@ impl<'info> CreateGame<'info> {
         &mut self,
         id: u64,
         grid_size: u8,
-        wager: Option<u64>,
+        wager: u64,
         bumps: CreateGameBumps,
     ) -> Result<()> {
-        if wager.is_some() {
-            require!(wager.unwrap().ge(&100_000u64), CayedError::MinimumWager);
+        if wager > 0 {
+            require!(wager.ge(&100_000u64), CayedError::MinimumWager);
             self.deposit(wager)?;
         }
         // Randomly decide who moves first
@@ -69,7 +69,6 @@ impl<'info> CreateGame<'info> {
             next_move_player_1: first_move,
             wager,
             status: GameStatus::AwaitingPlayerTwo,
-            creator_pubkey: self.player.key(),
             bump: bumps.game,
         });
 
@@ -81,9 +80,7 @@ impl<'info> CreateGame<'info> {
         Ok(())
     }
 
-    pub fn deposit(&mut self, wager: Option<u64>) -> Result<()> {
-        let amount = wager.unwrap();
-
+    pub fn deposit(&mut self, wager: u64) -> Result<()> {
         let cpi_accounts = Transfer {
             from: self.player.to_account_info(),
             to: self.vault.to_account_info(),
@@ -91,6 +88,6 @@ impl<'info> CreateGame<'info> {
 
         let cpi_ctx = CpiContext::new(self.system_program.to_account_info(), cpi_accounts);
 
-        transfer(cpi_ctx, amount)
+        transfer(cpi_ctx, wager)
     }
 }

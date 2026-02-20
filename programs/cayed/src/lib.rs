@@ -12,29 +12,17 @@ declare_id!("3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN");
 pub mod cayed {
     use super::*;
 
-    pub fn init_config(
-        ctx: Context<InitConfig>,
-        max_grid_size: u8,
-        fee: u16,
-    ) -> Result<()> {
-        ctx.accounts
-            .init_config(max_grid_size, fee, ctx.bumps)?;
+    pub fn init_config(ctx: Context<InitConfig>, max_grid_size: u8, fee: u16) -> Result<()> {
+        ctx.accounts.init_config(max_grid_size, fee, ctx.bumps)?;
         Ok(())
     }
 
-    pub fn create_game(
-        ctx: Context<CreateGame>,
-        id: u64,
-        grid_size: u8,
-        wager: Option<u64>,
-    ) -> Result<()> {
+    pub fn create_game(ctx: Context<CreateGame>, id: u64, grid_size: u8, wager: u64) -> Result<()> {
         ctx.accounts.create_game(id, grid_size, wager, ctx.bumps)?;
         Ok(())
     }
 
-    pub fn join_game(
-        ctx: Context<JoinGame>,
-    ) -> Result<()> {
+    pub fn join_game(ctx: Context<JoinGame>) -> Result<()> {
         ctx.accounts.join_game()?;
         Ok(())
     }
