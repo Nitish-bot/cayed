@@ -22,8 +22,33 @@ pub mod cayed {
         Ok(())
     }
 
+    // pub fn hide_ships(ctx: Context<HideShips>) -> Result<()> {
+    //     Ok(())
+    // }
+
     pub fn join_game(ctx: Context<JoinGame>) -> Result<()> {
         ctx.accounts.join_game()?;
         Ok(())
     }
+
+    // pub fn make_move(ctx: Context<MakeMove>) -> Result<()> {
+    //     ctx.accounts.make_move()?;
+    //     Ok(())
+    // }
+
+    // pub fn reveal_winner(ctx: Context<RevealWinner>) -> Result<()> {
+    //     ctx.accounts.reveal_winner()?;
+    //     Ok(())
+    // }
+
+    // pub fn create_permission(
+    //     ctx: Context<CreatePermission>,
+    //     game_id: u64,
+    // ) -> Result<()> {
+    //     Ok(())
+    // }
+
+    // pub fn delegate_pda(ctx: Context<DelegatePda>, game_id: u64) -> Result<()> {
+    //     Ok(())
+    // }
 }

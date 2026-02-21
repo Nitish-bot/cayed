@@ -10,29 +10,29 @@ pub struct JoinGame<'info> {
     pub player: Signer<'info>,
 
     #[account(
-    seeds = [b"game", game.id.to_le_bytes().as_ref()],
-    bump
-  )]
+        seeds = [b"game", game.id.to_le_bytes().as_ref()],
+        bump
+    )]
     pub game: Account<'info, Game>,
     #[account(
-    init,
-    payer = player,
-    space = 8 + PlayerBoard::INIT_SPACE,
-    seeds = [b"player", game.id.to_le_bytes().as_ref(), player.key().as_ref()],
-    bump,
-  )]
+        init,
+        payer = player,
+        space = 8 + PlayerBoard::INIT_SPACE,
+        seeds = [b"player", game.id.to_le_bytes().as_ref(), player.key().as_ref()],
+        bump,
+    )]
     pub player_board: Account<'info, PlayerBoard>,
 
     #[account(
-    seeds = [b"config"],
-    bump
-  )]
+        seeds = [b"config"],
+        bump
+    )]
     pub config: Account<'info, Config>,
     #[account(
-    mut,
-    seeds = [b"vault"],
-    bump,
-  )]
+        mut,
+        seeds = [b"vault"],
+        bump,
+    )]
     pub vault: Account<'info, Vault>,
 
     pub system_program: Program<'info, System>,

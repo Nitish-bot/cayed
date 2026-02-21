@@ -1,6 +1,4 @@
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
-pub struct HideShips {
-  
-}
+pub struct HideShips {}
