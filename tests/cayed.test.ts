@@ -6,8 +6,10 @@ import {
   getCreateGameInstruction,
   getGameDecoder,
   getInitConfigInstruction,
+  getJoinGameInstruction,
   getPlayerBoardDecoder,
   PLAYER_BOARD_DISCRIMINATOR,
+  type Game,
   type PlayerBoard,
 } from '@client/cayed';
 import {
@@ -45,6 +47,7 @@ describe('cayed', () => {
   const gridSize = 4;
   const wager = BigInt(1_000_000_000 / 10);
 
+  let getGames: () => Promise<MaybeAccount<Game, string>[]>;
   let getPlayerBoards: () => Promise<MaybeAccount<PlayerBoard, string>[]>;
 
   const baseUrl = 'http://127.0.0.1:8899';
@@ -104,6 +107,12 @@ describe('cayed', () => {
       getPlayerBoardDecoder()
     );
 
+    getGames = baseConnection.getAccountsFactory(
+      CAYED_PROGRAM_ADDRESS,
+      GAME_DISCRIMINATOR,
+      getGameDecoder()
+    );
+
     console.log('========= Addresses =========');
     console.log(`Authority: ${authority.address}`);
     console.log(`Player 1: ${player1.address}`);
@@ -139,7 +148,7 @@ describe('cayed', () => {
       getConfigDecoder()
     );
     const configAccounts = await getConfigs();
-    expect(configAccounts.length == 1, 'More than one config accounts should not exist');
+    expect(configAccounts.length == 1, 'Only one config account should exist');
 
     const config = configAccounts[0]!;
     assertAccountExists(config);
@@ -169,13 +178,8 @@ describe('cayed', () => {
       commitment: 'confirmed',
     });
 
-    const getGames = baseConnection.getAccountsFactory(
-      CAYED_PROGRAM_ADDRESS,
-      GAME_DISCRIMINATOR,
-      getGameDecoder()
-    );
     const gameAccounts = await getGames();
-    expect(gameAccounts.length == 1, 'More than one game accounts should not exist');
+    expect(gameAccounts.length == 1, 'Only one game account should exist');
 
     const game = gameAccounts[0]!;
     assertAccountExists(game);
@@ -187,11 +191,47 @@ describe('cayed', () => {
     const playerBoardAccounts = await getPlayerBoards();
     expect(
       playerBoardAccounts.length == 1,
-      'More than one player board accounts should not exist'
+      'Only one player board account should exist'
     );
 
     const player1Board = playerBoardAccounts[0]!;
-    expect(player1Board.exists, 'Player 1 board should have been initted');
+    expect(player1Board.exists && player1Board.address == player1BoardPda, 'Player 1 board should have been initted');
+
+    console.log(`Game created with sig: ${sig}`);
+  });
+
+  it('joins game', async () => {
+    const ix = getJoinGameInstruction({
+      player: player2,
+      game: gamePda,
+      playerBoard: player2BoardPda,
+      config: configPda,
+      vault: vaultPda,
+    });
+
+    const sig = await baseConnection.sendTransactionFromInstructions({
+      feePayer: player2,
+      instructions: [ix],
+      commitment: 'confirmed',
+    });
+
+    const gameAccounts = await getGames();
+    const game = gameAccounts[0]!;
+
+    assertAccountExists(game);
+    expect(
+      game.data.player2.__option == "Some" && game.data.player2.value == player2.address,
+      'Game should be joined with correct player2'
+    );
+
+    const playerBoardAccounts = await getPlayerBoards();
+    expect(
+      playerBoardAccounts.length == 2,
+      'Two player board accounts should exist'
+    );
+
+    const player2Board = playerBoardAccounts[0]!;
+    expect(player2Board.exists && player2Board.address == player2BoardPda, 'Player 1 board should have been initted');
 
     console.log(`Game created with sig: ${sig}`);
   });
