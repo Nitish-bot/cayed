@@ -1,4 +1,16 @@
 @theme {
+  /* ARCADE COLORS */
+  --color-arcade-bg: rgb(10 10 15);
+  --color-arcade-panel: rgb(18 18 26);
+  --color-arcade-border: rgb(42 42 58);
+  --color-arcade-cyan: rgb(0 255 204);
+  --color-arcade-magenta: rgb(255 0 128);
+  --color-arcade-yellow: rgb(255 204 0);
+  --color-arcade-red: rgb(255 51 51);
+  --color-arcade-green: rgb(0 204 102);
+  --color-arcade-text: rgb(224 224 224);
+  --color-arcade-muted: rgb(102 102 128);
+
   /* FONT FAMILY */
   --font-body:
     var(--font-inter, 'Inter'), -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;

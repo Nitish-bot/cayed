@@ -119,6 +119,12 @@ export default defineConfig([
     },
   },
   {
-    ignores: ['target/**', 'node_modules/**', 'web/client', 'web/vite.config.ts'],
+    ignores: [
+      'target/**',
+      'node_modules/**',
+      'web/client',
+      'web/vite.config.ts',
+      'web/dist',
+    ],
   },
 ]);
