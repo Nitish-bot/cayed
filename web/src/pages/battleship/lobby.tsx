@@ -5,8 +5,8 @@ import {
   getJoinGameInstruction,
   type Game,
 } from '@client/cayed';
-import { type KeyPairSigner, type MaybeAccount } from '@solana/kit';
-import { useWalletAccountTransactionSendingSigner } from '@solana/react';
+import { type MaybeAccount } from '@solana/kit';
+import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate } from 'react-router';
 import { getPDAAndBump } from 'solana-kite';
@@ -16,6 +16,7 @@ import { ConnectionContext } from '@/context/connection-context';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
 import { useGames } from '@/hooks/use-games';
 import { CAYED_PROGRAM_ADDRESS, LAMPORTS_PER_SOL } from '@/lib/constants';
+import { sendTransactionWithWallet } from '@/lib/send-transaction';
 
 /* ═══════════════════════════════════════
    Guard: split connected / disconnected
@@ -62,7 +63,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
   const navigate = useNavigate();
   const { connection } = useContext(ConnectionContext);
   const { chain } = useContext(ChainContext);
-  const signer = useWalletAccountTransactionSendingSigner(account, chain);
+  const signer = useWalletAccountTransactionSigner(account, chain);
   const { games, loading, refetch } = useGames();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -95,7 +96,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
       ]);
 
       const ix = getCreateGameInstruction({
-        player: signer as unknown as KeyPairSigner,
+        player: signer,
         game: gamePda,
         playerBoard: playerBoardPda,
         config: configPda,
@@ -105,8 +106,9 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
         wager: wagerLamports,
       });
 
-      await connection.sendTransactionFromInstructionsWithWalletApp({
-        feePayer: signer as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      await sendTransactionWithWallet({
+        connection,
+        feePayer: signer,
         instructions: [ix],
       });
 
@@ -136,14 +138,15 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
         ]);
 
         const ix = getJoinGameInstruction({
-          player: signer as unknown as KeyPairSigner,
+          player: signer,
           game: gamePda,
           playerBoard: playerBoardPda,
           vault: vaultPda,
         });
 
-        await connection.sendTransactionFromInstructionsWithWalletApp({
-          feePayer: signer as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        await sendTransactionWithWallet({
+          connection,
+          feePayer: signer,
           instructions: [ix],
         });
 
@@ -185,7 +188,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
                 GRID SIZE
               </span>
               <div className="flex gap-2">
-                {[4, 5, 6, 7, 8, 10].map(size => (
+                {[4, 6, 8, 10].map(size => (
                   <button
                     key={size}
                     onClick={() => setGridSize(size)}

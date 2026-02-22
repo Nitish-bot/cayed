@@ -10,7 +10,7 @@ import {
   type ShipCoordinatesArgs,
 } from '@client/cayed';
 import { isSome, type Address, type KeyPairSigner } from '@solana/kit';
-import { useWalletAccountTransactionSendingSigner } from '@solana/react';
+import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate, useParams } from 'react-router';
 import { getPDAAndBump } from 'solana-kite';
@@ -20,6 +20,7 @@ import { ChainContext } from '@/context/chain-context';
 import { ConnectionContext } from '@/context/connection-context';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
 import { CAYED_PROGRAM_ADDRESS, getShipSizes } from '@/lib/constants';
+import { sendTransactionWithWallet } from '@/lib/send-transaction';
 import {
   buildShip,
   cellKey,
@@ -61,7 +62,7 @@ function BattleshipGameInner({
   const navigate = useNavigate();
   const { connection } = useContext(ConnectionContext);
   const { chain } = useContext(ChainContext);
-  const signer = useWalletAccountTransactionSendingSigner(account, chain);
+  const signer = useWalletAccountTransactionSigner(account, chain);
 
   const gameId = useMemo(() => BigInt(gameIdStr ?? '0'), [gameIdStr]);
 
@@ -278,8 +279,9 @@ function BattleshipGameInner({
         ships: placedShips,
       });
 
-      await connection.sendTransactionFromInstructionsWithWalletApp({
-        feePayer: signer as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      await sendTransactionWithWallet({
+        connection,
+        feePayer: signer,
         instructions: [ix],
       });
 
@@ -322,8 +324,9 @@ function BattleshipGameInner({
           y: coord.y,
         });
 
-        await connection.sendTransactionFromInstructionsWithWalletApp({
-          feePayer: signer as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        await sendTransactionWithWallet({
+          connection,
+          feePayer: signer,
           instructions: [ix],
         });
 
