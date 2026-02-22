@@ -27,10 +27,20 @@ jobs:
         with:
           toolchain: 1.89.0
 
-      - uses: metadaoproject/setup-anchor@v3.4
+      - uses: metadaoproject/setup-solana@v1.2
         with:
-          anchor-version: '0.32.1'
           solana-cli-version: '3.1.9'
+        
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Cache Anchor CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/anchor
+          key: ${{ runner.os }}-anchor-0.32.1
+
+      - name: Install Anchor CLI
+        run: cargo binstall anchor-cli@0.32.1 --no-confirm --locked
 
       - name: Anchor build
         run: anchor build
