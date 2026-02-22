@@ -23,7 +23,7 @@ pub struct CreateGame<'info> {
     #[account(
         init,
         payer = player,
-        space = PlayerBoard::INIT_SPACE,
+        space = 8 + PlayerBoard::INIT_SPACE,
         seeds = [b"player", id.to_le_bytes().as_ref(), player.key().as_ref()],
         bump,
     )]
@@ -74,6 +74,8 @@ impl<'info> CreateGame<'info> {
 
         self.player_board.set_inner(PlayerBoard {
             game_id: self.game.id,
+            player: self.player.key(),
+            bump: bumps.player_board,
             ship_coordinates: vec![],
         });
 

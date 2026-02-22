@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
 use crate::errors::CayedError;
-use crate::state::{Config, Game, PlayerBoard, Vault};
+use crate::state::{Game, PlayerBoard, Vault};
 
 #[derive(Accounts)]
 pub struct JoinGame<'info> {
@@ -10,6 +10,7 @@ pub struct JoinGame<'info> {
     pub player: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [b"game", game.id.to_le_bytes().as_ref()],
         bump
     )]
@@ -24,11 +25,6 @@ pub struct JoinGame<'info> {
     pub player_board: Account<'info, PlayerBoard>,
 
     #[account(
-        seeds = [b"config"],
-        bump
-    )]
-    pub config: Account<'info, Config>,
-    #[account(
         mut,
         seeds = [b"vault"],
         bump,
@@ -39,7 +35,7 @@ pub struct JoinGame<'info> {
 }
 
 impl<'info> JoinGame<'info> {
-    pub fn join_game(&mut self) -> Result<()> {
+    pub fn join_game(&mut self, bumps: JoinGameBumps) -> Result<()> {
         let wager = self.game.wager;
         let player_1 = self.game.player_1;
         require!(
@@ -56,6 +52,8 @@ impl<'info> JoinGame<'info> {
 
         self.player_board.set_inner(PlayerBoard {
             game_id: self.game.id,
+            player: self.player.key(),
+            bump: bumps.player_board,
             ship_coordinates: vec![],
         });
 

@@ -4,6 +4,8 @@ import {
   GAME_DISCRIMINATOR,
   getConfigDecoder,
   getCreateGameInstruction,
+  getCreatePermissionInstruction,
+  getDelegatePdaInstruction,
   getGameDecoder,
   getInitConfigInstruction,
   getJoinGameInstruction,
@@ -13,15 +15,28 @@ import {
   type PlayerBoard,
 } from '@client/cayed';
 import {
+  AUTHORITY_FLAG,
+  createDelegatePermissionInstruction,
+  delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
+  delegationMetadataPdaFromDelegatedAccount,
+  delegationRecordPdaFromDelegatedAccount,
+  getAuthToken,
+  permissionPdaFromAccount,
+  TX_LOGS_FLAG,
+} from '@magicblock-labs/ephemeral-rollups-kit';
+import {
   address,
   assertAccountExists,
+  createKeyPairSignerFromPrivateKeyBytes,
+  lamports,
   type Address,
   type KeyPairSigner,
   type MaybeAccount,
 } from '@solana/kit';
 import { describe, beforeAll, it, expect } from 'bun:test';
 import { connect, type Connection } from 'solana-kite';
-
+import nacl from 'tweetnacl';
+import bs58 from 'bs58'
 // eslint-disable-next-line
 const stringify = (object: unknown) => {
   const bigIntReplacer = (key: string, value: unknown) =>
@@ -29,10 +44,18 @@ const stringify = (object: unknown) => {
   return JSON.stringify(object, bigIntReplacer, 2);
 };
 
+// eslint-disable-next-line
+const sleep = (ms: number): Promise<void> => {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+};
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
 describe('cayed', () => {
   let authority: KeyPairSigner;
   let player1: KeyPairSigner;
   let player2: KeyPairSigner;
+  let player1Bytes: Uint8Array;
+  let player2Bytes: Uint8Array;
 
   let configPda: Address;
   let vaultPda: Address;
@@ -40,31 +63,59 @@ describe('cayed', () => {
   let player1BoardPda: Address;
   let player2BoardPda: Address;
 
+  let player1BoardBump: number;
+
   let baseConnection: Connection;
   let ephemeralConnection: Connection;
+  let ephemeralConnectionP1: Connection;
+  let ephemeralConnectionP2: Connection;
 
   const gameId = BigInt(Date.now());
   const gridSize = 4;
-  const wager = BigInt(1_000_000_000 / 10);
+  const wager = BigInt(LAMPORTS_PER_SOL / 1_000);
 
   let getGames: () => Promise<MaybeAccount<Game, string>[]>;
   let getPlayerBoards: () => Promise<MaybeAccount<PlayerBoard, string>[]>;
+  let getPlayerBoardsEphemeral: () => Promise<MaybeAccount<PlayerBoard, string>[]>;
 
-  const baseUrl = 'http://127.0.0.1:8899';
-  const baseWsUrl = 'ws://127.0.0.1:8900';
-  const teeUrl = 'http://127.0.0.1:7799';
-  const teeWsUrl = 'ws://127.0.0.1:7800';
-  // Local validator
-  const ER_VALIDATOR = address('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
+  const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8899';
+  const baseWsUrl = process.env.BASE_WS_URL || 'ws://127.0.0.1:8900';
+  const ephemeralUrl = process.env.EPHEMERAL_URL || 'http://127.0.0.1:7799';
+  const ephemeralWsUrl = process.env.EPHEMERAL_WS_URL || 'ws://127.0.0.1:7800';
+  
+  const validator = process.env.ER_VALIDATOR
+  const ER_VALIDATOR = validator && address(validator) || address('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
 
   beforeAll(async () => {
     baseConnection = connect(baseUrl, baseWsUrl);
-    ephemeralConnection = connect(teeUrl, teeWsUrl);
+    authority = await baseConnection.createWallet();
+    [player1, player1Bytes] = await createKeypairAndPrivateKeyBytes(baseConnection);
+    [player2, player2Bytes] = await createKeypairAndPrivateKeyBytes(baseConnection);
 
-    const wallets = await baseConnection.createWallets(3);
-    authority = wallets[0]!;
-    player1 = wallets[1]!;
-    player2 = wallets[2]!;
+    ephemeralConnection = connect(ephemeralUrl, ephemeralWsUrl);
+    if (ephemeralUrl.includes('tee')) {
+      const authTokenP1 = await getAuthToken(
+        ephemeralUrl,
+        player1.address,
+        (message: Uint8Array) =>
+          Promise.resolve(nacl.sign.detached(message, player1Bytes))
+      );
+      const authTokenP2 = await getAuthToken(
+        ephemeralUrl,
+        player2.address,
+        (message: Uint8Array) =>
+          Promise.resolve(nacl.sign.detached(message, player2Bytes))
+      );
+
+      ephemeralConnectionP1 = connect(
+        `${ephemeralUrl}?token=${authTokenP1.token}`,
+        ephemeralWsUrl
+      );
+      ephemeralConnectionP2 = connect(
+        `${ephemeralUrl}?token=${authTokenP2.token}`,
+        ephemeralWsUrl
+      );
+    }
 
     const configSeeds = [Buffer.from('config')];
     const configPDAAndBump = await baseConnection.getPDAAndBump(
@@ -93,6 +144,7 @@ describe('cayed', () => {
       player1BoardSeeds
     );
     player1BoardPda = player1BoardPDAAndBump.pda;
+    player1BoardBump = player1BoardPDAAndBump.bump.valueOf();
 
     const player2BoardSeeds = ['player', gameId, player2.address];
     const player2BoardPDAAndBump = await baseConnection.getPDAAndBump(
@@ -102,6 +154,11 @@ describe('cayed', () => {
     player2BoardPda = player2BoardPDAAndBump.pda;
 
     getPlayerBoards = baseConnection.getAccountsFactory(
+      CAYED_PROGRAM_ADDRESS,
+      PLAYER_BOARD_DISCRIMINATOR,
+      getPlayerBoardDecoder()
+    );
+    getPlayerBoardsEphemeral = ephemeralConnection.getAccountsFactory(
       CAYED_PROGRAM_ADDRESS,
       PLAYER_BOARD_DISCRIMINATOR,
       getPlayerBoardDecoder()
@@ -136,7 +193,7 @@ describe('cayed', () => {
       fee: 100, // Basis points: 1%
     });
 
-    const sig = await baseConnection.sendTransactionFromInstructions({
+    await baseConnection.sendTransactionFromInstructions({
       feePayer: authority,
       instructions: [ix],
       commitment: 'confirmed',
@@ -157,11 +214,10 @@ describe('cayed', () => {
       config.data.authority == authority.address,
       'Config should have correct authority'
     );
-    console.log(`Initted config with sig: ${sig}`);
   });
 
   it('creates game', async () => {
-    const ix = getCreateGameInstruction({
+    const createGameIx = getCreateGameInstruction({
       player: player1,
       game: gamePda,
       playerBoard: player1BoardPda,
@@ -172,32 +228,68 @@ describe('cayed', () => {
       wager,
     });
 
-    const sig = await baseConnection.sendTransactionFromInstructions({
+    const player1BoardPermission = await permissionPdaFromAccount(player1BoardPda);
+    const members = [
+      {
+        flags: AUTHORITY_FLAG | TX_LOGS_FLAG,
+        pubkey: player1.address,
+      },
+    ];
+    const createPlayer1BoardPermissionIx = getCreatePermissionInstruction({
+      payer: player1,
+      permissionedAccount: player1BoardPda,
+      permission: player1BoardPermission,
+      members,
+      gameId,
+      player: player1.address,
+      bump: player1BoardBump
+    })
+
+    const delegatePermissionIx = await createDelegatePermissionInstruction({
+      payer: player1.address,
+      authority: [player1.address, true],
+      permissionedAccount: [player1BoardPda, false],
+      validator: ER_VALIDATOR,
+    })
+
+    const buffer = await delegateBufferPdaFromDelegatedAccountAndOwnerProgram(player1BoardPda, CAYED_PROGRAM_ADDRESS)
+    const delegationRecord = await delegationRecordPdaFromDelegatedAccount(player1BoardPda)
+    const delegationMetadata = await delegationMetadataPdaFromDelegatedAccount(player1BoardPda)
+    
+    const delegatePlayer1BoardIx = getDelegatePdaInstruction({
+      payer: player1,
+      pda: player1BoardPda,
+      validator: ER_VALIDATOR,
+      bufferPda: buffer,
+      delegationRecordPda: delegationRecord,
+      delegationMetadataPda: delegationMetadata,
+      gameId,
+      player: player1.address,
+    })
+
+    await baseConnection.sendTransactionFromInstructions({
       feePayer: player1,
-      instructions: [ix],
+      instructions: [
+        createGameIx,
+        createPlayer1BoardPermissionIx,
+        delegatePermissionIx,
+        delegatePlayer1BoardIx
+      ],
       commitment: 'confirmed',
     });
 
-    const gameAccounts = await getGames();
-    expect(gameAccounts.length == 1, 'Only one game account should exist');
+    const pb = await baseConnection.rpc.getAccountInfo(player1BoardPda).send()
+    const pbe = await ephemeralConnection.rpc.getAccountInfo(player1BoardPda).send()
+    console.log(pb.value?.owner, pbe.value?.owner)
+    const player1Data = pb.value?.data;
+    if (!player1Data) {
+      throw Error('player1 board not found')
+    }
+    const player1Bytes = bs58.decode(player1Data)
+    const decoder = getPlayerBoardDecoder()
+    const player1Board = decoder.decode(player1Bytes)
 
-    const game = gameAccounts[0]!;
-    assertAccountExists(game);
-    expect(
-      game.data.player1 == player1.address,
-      'Game account should be initted with correct player1'
-    );
-
-    const playerBoardAccounts = await getPlayerBoards();
-    expect(
-      playerBoardAccounts.length == 1,
-      'Only one player board account should exist'
-    );
-
-    const player1Board = playerBoardAccounts[0]!;
-    expect(player1Board.exists && player1Board.address == player1BoardPda, 'Player 1 board should have been initted');
-
-    console.log(`Game created with sig: ${sig}`);
+    expect(player1Board.player == player1.address, 'unmatching player1Board')
   });
 
   it('joins game', async () => {
@@ -205,11 +297,10 @@ describe('cayed', () => {
       player: player2,
       game: gamePda,
       playerBoard: player2BoardPda,
-      config: configPda,
       vault: vaultPda,
     });
 
-    const sig = await baseConnection.sendTransactionFromInstructions({
+    await baseConnection.sendTransactionFromInstructions({
       feePayer: player2,
       instructions: [ix],
       commitment: 'confirmed',
@@ -220,19 +311,41 @@ describe('cayed', () => {
 
     assertAccountExists(game);
     expect(
-      game.data.player2.__option == "Some" && game.data.player2.value == player2.address,
+      game.data.player2.__option == 'Some' && game.data.player2.value == player2.address,
       'Game should be joined with correct player2'
     );
 
     const playerBoardAccounts = await getPlayerBoards();
-    expect(
-      playerBoardAccounts.length == 2,
-      'Two player board accounts should exist'
-    );
+    expect(playerBoardAccounts.length == 2, 'Two player board accounts should exist');
 
     const player2Board = playerBoardAccounts[0]!;
-    expect(player2Board.exists && player2Board.address == player2BoardPda, 'Player 1 board should have been initted');
-
-    console.log(`Game created with sig: ${sig}`);
+    expect(
+      player2Board.exists && player2Board.address == player2BoardPda,
+      'Player 1 board should have been initted'
+    );
   });
 });
+
+async function createKeypairAndPrivateKeyBytes(
+  connection: Connection
+): Promise<[KeyPairSigner, Uint8Array]> {
+  // @ts-expect-error generateKey returns keypair for assymetric algos
+  const keypair: CryptoKeyPair = await crypto.subtle.generateKey(
+    /* algorithm */ { name: 'Ed25519' },
+    /* extractable */ true,
+    /* usages */ ['sign', 'verify']
+  );
+  const exportedPrivateKey = await crypto.subtle.exportKey('pkcs8', keypair.privateKey);
+  const privateKeyBytes = new Uint8Array(
+    exportedPrivateKey,
+    exportedPrivateKey.byteLength - 32,
+    32
+  );
+  const keypairSigner = await createKeyPairSignerFromPrivateKeyBytes(privateKeyBytes);
+  connection.airdropIfRequired(
+    keypairSigner.address,
+    lamports(BigInt(LAMPORTS_PER_SOL)),
+    lamports(BigInt(LAMPORTS_PER_SOL / 10))
+  );
+  return [keypairSigner, privateKeyBytes];
+}

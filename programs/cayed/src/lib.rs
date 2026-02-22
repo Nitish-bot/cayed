@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::access_control::structs::Member;
+use ephemeral_rollups_sdk::anchor::ephemeral;
 
 pub mod errors;
 pub mod instructions;
@@ -8,6 +10,7 @@ use instructions::*;
 
 declare_id!("3jatZuig82z7WWiKJmtzeiWoK2hxQnUwfAFNcJJPXAyN");
 
+#[ephemeral]
 #[program]
 pub mod cayed {
     use super::*;
@@ -27,7 +30,7 @@ pub mod cayed {
     // }
 
     pub fn join_game(ctx: Context<JoinGame>) -> Result<()> {
-        ctx.accounts.join_game()?;
+        ctx.accounts.join_game(ctx.bumps)?;
         Ok(())
     }
 
@@ -41,14 +44,19 @@ pub mod cayed {
     //     Ok(())
     // }
 
-    // pub fn create_permission(
-    //     ctx: Context<CreatePermission>,
-    //     game_id: u64,
-    // ) -> Result<()> {
-    //     Ok(())
-    // }
+    pub fn create_permission(
+        ctx: Context<CreatePermission>,
+        game_id: u64,
+        player: Pubkey,
+        bump: u8,
+        members: Option<Vec<Member>>,
+    ) -> Result<()> {
+        ctx.accounts.create_permission(game_id, player, bump, members)?;
+        Ok(())
+    }
 
-    // pub fn delegate_pda(ctx: Context<DelegatePda>, game_id: u64) -> Result<()> {
-    //     Ok(())
-    // }
+    pub fn delegate_pda(ctx: Context<DelegatePda>, game_id: u64, player: Pubkey) -> Result<()> {
+        ctx.accounts.del_pda(game_id, player)?;
+        Ok(())
+    }
 }

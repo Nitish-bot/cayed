@@ -29,6 +29,8 @@ pub struct ShipCoordinates {
 pub enum GameStatus {
     AwaitingPlayerTwo,
     InProgress,
-    Completed,
+    AwaitingWinnerReveal,
+    Completed { winner: Pubkey },
     Cancelled,
+    Forfeited,
 }
