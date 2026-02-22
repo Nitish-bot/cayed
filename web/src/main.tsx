@@ -12,7 +12,7 @@ import '@/styles/globals.css';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter basename="/cayed">
         <RouteProvider>
           <Routes>
             <Route path="/" element={<Index />} />

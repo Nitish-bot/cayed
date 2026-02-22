@@ -14,7 +14,6 @@
   "dependencies": {
     "@magicblock-labs/ephemeral-rollups-kit": "^0.8.5",
     "@solana/kit": "^6.1.0",
-    "bs58": "^6.0.0",
     "solana-kite": "^3.2.0",
     "tweetnacl": "^1.0.3"
   },
