@@ -28,9 +28,9 @@ jobs:
           toolchain: 1.89.0
 
       - name: Setup Solana
-        run: sh -c "$(curl -sSfL https://release.anza.xyz/beta/install)"
-
-      - run: export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/beta/install)"
+          echo "/home/runner/.local/share/solana/install/active_release/bin:$PATH" >> $GITHUB_PATH
 
       - uses: cargo-bins/cargo-binstall@main
 
