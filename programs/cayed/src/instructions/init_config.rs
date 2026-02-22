@@ -8,7 +8,7 @@ pub struct InitConfig<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         seeds = [b"config"],
         space = 8 + Config::INIT_SPACE,
@@ -17,7 +17,7 @@ pub struct InitConfig<'info> {
     pub config: Account<'info, Config>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         space = 8 + Vault::INIT_SPACE,
         seeds = [b"vault"],

@@ -52,6 +52,8 @@ impl<'info> CreateGame<'info> {
         wager: u64,
         bumps: CreateGameBumps,
     ) -> Result<()> {
+        require!(grid_size % 2 == 0 && grid_size > 0, CayedError::GridNotEven);
+
         if wager > 0 {
             require!(wager.ge(&100_000u64), CayedError::MinimumWager);
             self.deposit(wager)?;
@@ -77,6 +79,7 @@ impl<'info> CreateGame<'info> {
             player: self.player.key(),
             bump: bumps.player_board,
             ship_coordinates: vec![],
+            hits_received: vec![],
         });
 
         Ok(())

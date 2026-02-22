@@ -23,7 +23,13 @@ pub struct CreatePermission<'info> {
 }
 
 impl<'info> CreatePermission<'info> {
-    pub fn create_permission(&mut self, game_id:u64, player:Pubkey, bump: u8, members: Option<Vec<Member>>) -> Result<()> {
+    pub fn create_permission(
+        &mut self,
+        game_id: u64,
+        player: Pubkey,
+        bump: u8,
+        members: Option<Vec<Member>>,
+    ) -> Result<()> {
         let CreatePermission {
             permissioned_account,
             permission,
@@ -34,11 +40,11 @@ impl<'info> CreatePermission<'info> {
 
         let game_id_bytes = game_id.to_le_bytes();
         let player_id_bytes = player.to_bytes();
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[b"player",
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"player",
             game_id_bytes.as_ref(),
             player_id_bytes.as_ref(),
-            &[bump]
+            &[bump],
         ]];
 
         CreatePermissionCpiBuilder::new(permission_program)

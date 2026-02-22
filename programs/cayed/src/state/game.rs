@@ -17,12 +17,12 @@ pub struct Game {
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, PartialEq)]
 pub struct ShipCoordinates {
-    start_x: u8,
-    start_y: u8,
-    end_x: u8,
-    end_y: u8,
+    pub start_x: u8,
+    pub start_y: u8,
+    pub end_x: u8,
+    pub end_y: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone)]

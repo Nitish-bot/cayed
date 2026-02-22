@@ -55,6 +55,7 @@ impl<'info> JoinGame<'info> {
             player: self.player.key(),
             bump: bumps.player_board,
             ship_coordinates: vec![],
+            hits_received: vec![],
         });
 
         Ok(())

@@ -8,3 +8,4 @@ test-ledger
 magicblock-test-storage
 .surfpool
 web/client
+.env
