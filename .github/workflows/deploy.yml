@@ -37,7 +37,7 @@ jobs:
       - name: Inject Program Keypair
         run: |
           mkdir -p target/deploy
-          echo "${{ secrets.PROGRAM_KEYPAIR_BYTES }}" > target>deploy>cayed-keypair.json
+          echo "${{ secrets.PROGRAM_KEYPAIR_BYTES }}" > target/deploy/cayed-keypair.json
       
       - name: Install Anchor CLI
         run: cargo binstall anchor-cli@0.32.1 --no-confirm --locked
