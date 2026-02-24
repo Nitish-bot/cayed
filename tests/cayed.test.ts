@@ -60,7 +60,9 @@ const sleep = (ms: number): Promise<void> => {
 async function sendAndPoll(
   conn: Connection,
   feePayer: KeyPairSigner,
-  instructions: Parameters<Connection['sendTransactionFromInstructions']>[0]['instructions'],
+  instructions: Parameters<
+    Connection['sendTransactionFromInstructions']
+  >[0]['instructions']
 ) {
   const { value: latestBlockhash } = await conn.rpc.getLatestBlockhash().send();
 
