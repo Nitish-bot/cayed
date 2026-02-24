@@ -7,10 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "format": "cd .. & bun run format",
-    "format:fix": "cd .. & bun run format:fix",
-    "lint": "cd .. & bun run lint",
-    "lint:fix": "cd .. & bun run lint:fix"
+    "format": "cd .. && bun run format",
+    "format:fix": "cd .. && bun run format:fix",
+    "lint": "cd .. && bun run lint",
+    "lint:fix": "cd .. && bun run lint:fix"
   },
   "dependencies": {
     "@magicblock-labs/ephemeral-rollups-kit": "^0.8.5",

@@ -1,7 +1,13 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { GAME_DISCRIMINATOR, getGameDecoder, type Game } from '@client/cayed';
-import { type MaybeAccount } from '@solana/kit';
+import {
+  parseBase64RpcAccount,
+  decodeAccount,
+  type MaybeAccount,
+  getBase58Decoder,
+} from '@solana/kit';
+import { type Connection } from 'solana-kite';
 
 import { ConnectionContext } from '@/context/connection-context';
 import { CAYED_PROGRAM_ADDRESS } from '@/lib/constants';
@@ -12,38 +18,21 @@ import { CAYED_PROGRAM_ADDRESS } from '@/lib/constants';
  * buffers that share the program owner but have a different layout).
  */
 async function fetchGameAccountsSafe(
-  connection: ReturnType<typeof import('solana-kite').connect>
+  connection: Connection
 ): Promise<MaybeAccount<Game>[]> {
-  const getGames = connection.getAccountsFactory(
-    CAYED_PROGRAM_ADDRESS,
-    GAME_DISCRIMINATOR,
-    getGameDecoder()
-  );
+  const bs58 = getBase58Decoder();
+  const gameDecoder = getGameDecoder();
 
-  // getAccountsFactory blows up if *any* account fails to decode.
-  // We catch that and fall back to a per-account approach.
-  try {
-    return await getGames();
-  } catch {
-    // Fall through to manual per-account fetch
-  }
-
-  // Manual fallback: fetch raw, decode individually, skip failures
-  const { getBase58Decoder, parseBase64RpcAccount, decodeAccount } =
-    await import('@solana/kit');
-  const base58 = getBase58Decoder();
-  const decoder = getGameDecoder();
-
+  const GAME_DISCRIMINATOR_BYTES = bs58.decode(GAME_DISCRIMINATOR);
   const raw = await connection.rpc
     .getProgramAccounts(CAYED_PROGRAM_ADDRESS, {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      encoding: 'jsonParsed' as any,
+      encoding: 'jsonParsed',
       filters: [
         {
           memcmp: {
             offset: 0n,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            bytes: base58.decode(GAME_DISCRIMINATOR) as any,
+            // @ts-expect-error I have no idea how providing a string works here
+            bytes: GAME_DISCRIMINATOR_BYTES,
             encoding: 'base58',
           },
         },
@@ -58,10 +47,9 @@ async function fetchGameAccountsSafe(
       const encoded = parseBase64RpcAccount(item.pubkey, item.account);
       const decoded = decodeAccount(
         { ...encoded, data: Uint8Array.from(encoded.data) },
-        decoder
+        gameDecoder
       );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      results.push({ ...decoded, exists: true } as any);
+      results.push({ ...decoded, exists: true });
     } catch {
       // skip undecipherable accounts
     }
