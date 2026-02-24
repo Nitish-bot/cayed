@@ -14,6 +14,7 @@ import {
   getRevealWinnerInstruction,
   type ShipCoordinatesArgs,
 } from '@client/cayed';
+import { accountType } from '@client/cayed/types/accountType';
 import {
   Connection as MBConnection,
   AUTHORITY_FLAG,
@@ -42,6 +43,7 @@ import { describe, beforeAll, it, expect } from 'bun:test';
 import { connect, type Connection } from 'solana-kite';
 import nacl from 'tweetnacl';
 
+// eslint-disable-next-line
 const stringify = (object: unknown) => {
   const bigIntReplacer = (key: string, value: unknown) =>
     typeof value === 'bigint' ? value.toString() : value;
@@ -77,6 +79,44 @@ async function sendAndPoll(
   }
   throw new Error(`Transaction confirmation timeout for ${sig}`);
 }
+
+type MoveLogResult = {
+  x: number;
+  y: number;
+  result: 'HIT' | 'MISS';
+  gameOver: boolean;
+};
+
+const getLastMoveResult = async (
+  conn: MBConnection,
+  gamePda: Address,
+  expectedMoveCount: number
+): Promise<MoveLogResult> => {
+  const decoder = getGameDecoder();
+  // Poll until the game account reflects the expected move count
+  for (let i = 0; i < 30; i++) {
+    const raw = await conn.rpc.getAccountInfo(gamePda, { encoding: 'base64' }).send();
+    if (raw.value) {
+      const data = decoder.decode(
+        Uint8Array.from(Buffer.from(raw.value.data[0] as string, 'base64'))
+      );
+
+      const moveCount = data.moves.length;
+      if (moveCount != expectedMoveCount) throw new Error('Move count does not match');
+
+      const last = data.moves[moveCount - 1]!;
+      const isCompleted = data.status.__kind == 'Completed';
+      return {
+        x: last.x,
+        y: last.y,
+        result: last.isHit ? 'HIT' : 'MISS',
+        gameOver: isCompleted,
+      };
+    }
+    await sleep(500);
+  }
+  throw new Error(`Timed out waiting for move #${expectedMoveCount} on game account`);
+};
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 describe('cayed', () => {
@@ -91,9 +131,6 @@ describe('cayed', () => {
   let gamePda: Address;
   let player1BoardPda: Address;
   let player2BoardPda: Address;
-
-  let player1BoardBump: number;
-  let player2BoardBump: number;
 
   let baseConnection: Connection;
   let ephemeralConnection: MBConnection;
@@ -177,7 +214,6 @@ describe('cayed', () => {
       player1BoardSeeds
     );
     player1BoardPda = player1BoardPDAAndBump.pda;
-    player1BoardBump = player1BoardPDAAndBump.bump.valueOf();
 
     const player2BoardSeeds = ['player', gameId, player2.address];
     const player2BoardPDAAndBump = await baseConnection.getPDAAndBump(
@@ -185,9 +221,6 @@ describe('cayed', () => {
       player2BoardSeeds
     );
     player2BoardPda = player2BoardPDAAndBump.pda;
-
-    const player2BoardBumpResult = player2BoardPDAAndBump.bump;
-    player2BoardBump = player2BoardBumpResult.valueOf();
 
     console.log('========= Addresses =========');
     console.log(`Authority: ${authority.address}`);
@@ -246,16 +279,7 @@ describe('cayed', () => {
       gridSize,
       wager,
     });
-    
-    const gamePermission = await permissionPdaFromAccount(gamePda);
-    const createGamePermissionIx = getCreatePermissionInstruction({
-      payer: player1,
-      permissionedAccount:gamePda,
-      permission: gamePermission,
-      members: [],
-      gameId,
-      player: player1.
-  })
+
     const player1BoardPermission = await permissionPdaFromAccount(player1BoardPda);
     const members = [
       {
@@ -263,17 +287,16 @@ describe('cayed', () => {
         pubkey: player1.address,
       },
     ];
+    const pbAccountType = accountType('PlayerBoard', { gameId, player: player1.address });
     const createPlayer1BoardPermissionIx = getCreatePermissionInstruction({
       payer: player1,
       permissionedAccount: player1BoardPda,
       permission: player1BoardPermission,
       members,
-      gameId,
-      player: player1.address,
-      bump: player1BoardBump,
+      accountType: pbAccountType,
     });
 
-    const delegatePermissionIx = await createDelegatePermissionInstruction({
+    const delegatePlayerBoardPermissionIx = await createDelegatePermissionInstruction({
       payer: player1.address,
       authority: [player1.address, true],
       permissionedAccount: [player1BoardPda, false],
@@ -296,8 +319,7 @@ describe('cayed', () => {
       bufferPda: buffer,
       delegationRecordPda: delegationRecord,
       delegationMetadataPda: delegationMetadata,
-      gameId,
-      player: player1.address,
+      accountType: pbAccountType,
     });
 
     await baseConnection.sendTransactionFromInstructions({
@@ -305,7 +327,7 @@ describe('cayed', () => {
       instructions: [
         createGameIx,
         createPlayer1BoardPermissionIx,
-        delegatePermissionIx,
+        delegatePlayerBoardPermissionIx,
         delegatePlayer1BoardIx,
       ],
       commitment: 'confirmed',
@@ -328,14 +350,16 @@ describe('cayed', () => {
         pubkey: player2.address,
       },
     ];
+    const p2bAccountType = accountType('PlayerBoard', {
+      gameId,
+      player: player2.address,
+    });
     const createPlayer2BoardPermissionIx = getCreatePermissionInstruction({
       payer: player2,
       permissionedAccount: player2BoardPda,
       permission: player2BoardPermission,
       members,
-      gameId,
-      player: player2.address,
-      bump: player2BoardBump,
+      accountType: p2bAccountType,
     });
 
     const delegatePermissionIx = await createDelegatePermissionInstruction({
@@ -361,14 +385,33 @@ describe('cayed', () => {
       bufferPda: buffer,
       delegationRecordPda: delegationRecord,
       delegationMetadataPda: delegationMetadata,
-      gameId,
-      player: player2.address,
+      accountType: p2bAccountType,
+    });
+
+    // Delegate game PDA to ER (after join_game sets player_2)
+    const gameAccountType = accountType('Game', { gameId });
+    const gameBuffer = await delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
+      gamePda,
+      CAYED_PROGRAM_ADDRESS
+    );
+    const gameDelegationRecord = await delegationRecordPdaFromDelegatedAccount(gamePda);
+    const gameDelegationMetadata =
+      await delegationMetadataPdaFromDelegatedAccount(gamePda);
+    const delegateGameIx = getDelegatePdaInstruction({
+      payer: player2,
+      pda: gamePda,
+      validator: ER_VALIDATOR,
+      bufferPda: gameBuffer,
+      delegationRecordPda: gameDelegationRecord,
+      delegationMetadataPda: gameDelegationMetadata,
+      accountType: gameAccountType,
     });
 
     await baseConnection.sendTransactionFromInstructions({
       feePayer: player2,
       instructions: [
         joinGameIx,
+        delegateGameIx,
         createPlayer2BoardPermissionIx,
         delegatePermissionIx,
         delegatePlayer2BoardIx,
@@ -407,7 +450,6 @@ describe('cayed', () => {
     );
 
     await sendAndPoll(erConnection, transactionMessage, [player1.keyPair]);
-    console.log('✅ Player 1 hid ships');
 
     // Player 2 hides ships on their board
     const erConnection2 = ephemeralConnectionP2 ?? ephemeralConnection;
@@ -433,7 +475,6 @@ describe('cayed', () => {
     );
 
     await sendAndPoll(erConnection2, transactionMessage2, [player2.keyPair]);
-    console.log('✅ Player 2 hid ships');
   });
 
   it('players can see own board but not opponent board', async () => {
@@ -444,9 +485,7 @@ describe('cayed', () => {
     const p1OwnBoard = await erConnection1.rpc
       .getAccountInfo(player1BoardPda, { encoding: 'base64' })
       .send();
-    if (p1OwnBoard.value !== null) {
-      console.log('✅ Player 1 can see their own board');
-    } else {
+    if (p1OwnBoard.value == null) {
       throw new Error('❌ Player 1 cannot see their own board!');
     }
 
@@ -454,9 +493,7 @@ describe('cayed', () => {
     const p2OwnBoard = await erConnection2.rpc
       .getAccountInfo(player2BoardPda, { encoding: 'base64' })
       .send();
-    if (p2OwnBoard.value !== null) {
-      console.log('✅ Player 2 can see their own board');
-    } else {
+    if (p2OwnBoard.value == null) {
       throw new Error('❌ Player 2 cannot see their own board!');
     }
 
@@ -465,15 +502,12 @@ describe('cayed', () => {
       const sneak1 = await erConnection2.rpc
         .getAccountInfo(player1BoardPda, { encoding: 'base64' })
         .send();
-      if (sneak1.value === null) {
-        console.log('✅ Player 1 board not visible to Player 2 — as expected');
-      } else {
+      if (sneak1.value !== null) {
         throw new Error('❌ Player 2 was able to read Player 1 board!');
       }
       // eslint-disable-next-line
     } catch (e: any) {
       if (e.message?.includes('Player 2 was able to read')) throw e;
-      console.log(`✅ Player 2 blocked from Player 1 board: ${e.message ?? e}`);
     }
 
     // Player 1 CANNOT see Player 2's board
@@ -481,25 +515,24 @@ describe('cayed', () => {
       const sneak2 = await erConnection1.rpc
         .getAccountInfo(player2BoardPda, { encoding: 'base64' })
         .send();
-      if (sneak2.value === null) {
-        console.log('✅ Player 2 board not visible to Player 1 — as expected');
-      } else {
+      if (sneak2.value !== null) {
         throw new Error('❌ Player 1 was able to read Player 2 board!');
       }
       // eslint-disable-next-line
     } catch (e: any) {
       if (e.message?.includes('Player 1 was able to read')) throw e;
-      console.log(`✅ Player 1 blocked from Player 2 board: ${e.message ?? e}`);
     }
   });
 
   it('makes moves and sinks all ships', async () => {
+    console.log('Playing game, this way take time...');
     const erConnection1 = ephemeralConnectionP1 ?? ephemeralConnection;
     const erConnection2 = ephemeralConnectionP2 ?? ephemeralConnection;
 
     // Determine who goes first: if gameId is even, player1 goes first
     const player1First = gameId % 2n === 0n;
-    console.log(`First move: ${player1First ? 'Player 1' : 'Player 2'}`);
+
+    let moveCount = 0;
 
     // Player 2's ships: (2,0),(3,0),(1,1) → 3 cells to sink
     // Player 1's ships: (0,0),(1,0),(0,1) → 3 cells to sink
@@ -544,7 +577,11 @@ describe('cayed', () => {
         );
 
         await sendAndPoll(erConnection1, txMsg, [player1.keyPair]);
-        console.log(`✅ Player 1 attacked (${attack.x}, ${attack.y})`);
+        moveCount++;
+        const move = await getLastMoveResult(erConnection1, gamePda, moveCount);
+        expect(move.x).toBe(attack.x);
+        expect(move.y).toBe(attack.y);
+        expect(move.result).toBe('HIT');
         p1AttackIdx++;
         isP1Turn = false;
       } else {
@@ -569,7 +606,11 @@ describe('cayed', () => {
           );
 
           await sendAndPoll(erConnection2, txMsg, [player2.keyPair]);
-          console.log(`✅ Player 2 attacked (${attack.x}, ${attack.y})`);
+          moveCount++;
+          const move = await getLastMoveResult(erConnection2, gamePda, moveCount);
+          expect(move.x).toBe(attack.x);
+          expect(move.y).toBe(attack.y);
+          expect(move.result).toBe('HIT');
           p2AttackIdx++;
         } else {
           // Player 2 has no more attacks but still needs to take a turn
@@ -593,13 +634,15 @@ describe('cayed', () => {
           );
 
           await sendAndPoll(erConnection2, txMsg, [player2.keyPair]);
-          console.log('✅ Player 2 attacked (3, 1) (miss)');
+          moveCount++;
+          const move = await getLastMoveResult(erConnection2, gamePda, moveCount);
+          expect(move.x).toBe(3);
+          expect(move.y).toBe(1);
+          expect(move.result).toBe('MISS');
         }
         isP1Turn = true;
       }
     }
-    
-    sleep(5000)
 
     const decoder = getGameDecoder();
     const gameRaw = await baseConnection.rpc
@@ -608,10 +651,10 @@ describe('cayed', () => {
     const gameData = decoder.decode(
       Uint8Array.from(Buffer.from(gameRaw.value!.data[0], 'base64'))
     );
-
-    console.log(gameData);
-
-    console.log('✅ All of Player 2 ships sunk');
+    expect(
+      gameData.status.__kind == 'Completed' && gameData.status.winner == player1.address,
+      'Game status didnt match'
+    );
   });
 
   it('reveals winner', async () => {
@@ -638,7 +681,6 @@ describe('cayed', () => {
     );
 
     await sendAndPoll(erConnection, txMsg, [player1.keyPair]);
-    console.log('✅ Winner revealed and boards committed back');
 
     await sleep(5000);
 
@@ -655,8 +697,9 @@ describe('cayed', () => {
     expect(p1Data.gameId).toBe(gameId);
     expect(p1Data.shipCoordinates.length).toBe(2);
     // P1 ships: (0,0)-(1,0) and (0,1)-(0,1)
-    // P2 attacked: (0,0), (1,0), (3,1) — so hits_received should have (0,0) and (1,0)
-    expect(p1Data.hitsReceived.length).toBeGreaterThanOrEqual(2);
+    // P2 attacked: (0,0), (1,0), (3,1)
+    const p1Hits = p1Data.hitsBitmap.toString(2).split('1').length - 1;
+    expect(p1Hits).toBeGreaterThanOrEqual(2);
 
     const p2Raw = await baseConnection.rpc
       .getAccountInfo(player2BoardPda, { encoding: 'base64' })
@@ -668,8 +711,7 @@ describe('cayed', () => {
     expect(p2Data.gameId).toBe(gameId);
     expect(p2Data.shipCoordinates.length).toBe(2);
     // P1 attacked: (2,0), (3,0), (1,1) — all 3 cells of P2's ships sunk
-    expect(p2Data.hitsReceived.length).toBe(3);
-
-    console.log('✅ Both boards verified on base layer with correct data');
+    const p2Hits = p2Data.hitsBitmap.toString(2).split('1').length - 1;
+    expect(p2Hits).toBe(3);
   });
 });

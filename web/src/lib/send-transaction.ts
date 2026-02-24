@@ -35,12 +35,12 @@ export async function sendTransactionWithWallet({
     createTransactionMessage({ version: 0 }),
     msg => setTransactionMessageFeePayerSigner(feePayer, msg),
     msg => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-    msg => appendTransactionMessageInstructions(instructions, msg),
+    msg => appendTransactionMessageInstructions(instructions, msg)
   );
 
   const signedTransaction = await signTransactionMessageWithSigners(transactionMessage);
   const base64EncodedTransaction = getBase64EncodedWireTransaction(
-    signedTransaction as Parameters<typeof getBase64EncodedWireTransaction>[0],
+    signedTransaction as Parameters<typeof getBase64EncodedWireTransaction>[0]
   );
 
   await connection.rpc

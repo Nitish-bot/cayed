@@ -53,12 +53,16 @@ impl<'info> CreateGame<'info> {
         bumps: CreateGameBumps,
     ) -> Result<()> {
         require!(grid_size % 2 == 0 && grid_size > 0, CayedError::GridNotEven);
+        require!(
+            grid_size <= self.config.max_grid_size,
+            CayedError::GridSizeTooLarge
+        );
 
         if wager > 0 {
             require!(wager.ge(&100_000u64), CayedError::MinimumWager);
             self.deposit(wager)?;
         }
-        // Randomly decide who moves first
+        // Deterministic first-move selection based on game id parity
         let first_move = id % 2 == 0;
 
         self.game.set_inner(Game {
@@ -68,6 +72,7 @@ impl<'info> CreateGame<'info> {
             player_2: None,
             revealed_ships_player_1: vec![],
             revealed_ships_player_2: vec![],
+            moves: vec![],
             next_move_player_1: first_move,
             wager,
             status: GameStatus::AwaitingPlayerTwo,
@@ -79,7 +84,10 @@ impl<'info> CreateGame<'info> {
             player: self.player.key(),
             bump: bumps.player_board,
             ship_coordinates: vec![],
-            hits_received: vec![],
+            ship_masks: vec![],
+            all_ships_mask: 0,
+            hits_bitmap: 0,
+            sunk_mask: 0,
         });
 
         Ok(())

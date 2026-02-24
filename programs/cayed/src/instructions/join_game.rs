@@ -49,14 +49,17 @@ impl<'info> JoinGame<'info> {
         }
 
         self.game.player_2 = Some(self.player.key());
-        self.game.status = crate::state::GameStatus::InProgress;
+        self.game.status = crate::state::GameStatus::HidingShips;
 
         self.player_board.set_inner(PlayerBoard {
             game_id: self.game.id,
             player: self.player.key(),
             bump: bumps.player_board,
             ship_coordinates: vec![],
-            hits_received: vec![],
+            ship_masks: vec![],
+            all_ships_mask: 0,
+            hits_bitmap: 0,
+            sunk_mask: 0,
         });
 
         Ok(())

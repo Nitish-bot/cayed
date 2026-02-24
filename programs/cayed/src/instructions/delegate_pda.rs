@@ -16,13 +16,10 @@ pub struct DelegatePda {
 
 impl<'info> DelegatePda<'info> {
     pub fn del_pda(&mut self, account_type: AccountType) -> Result<()> {
-        let mut seed_data = account_type.derive_seeds();
-        let (_, bump) = Pubkey::find_program_address(
-            &seed_data.iter().map(|s| s.as_slice()).collect::<Vec<_>>(),
-            &crate::ID,
-        );
-        seed_data.push(vec![bump]);
+        let seed_data = account_type.derive_seeds();
 
+        // Delegate PDA derives bump on it's own while
+        // create permission expects it explicitly ???
         let signer_seeds = seed_data
             .iter()
             .map(|s| s.as_slice())

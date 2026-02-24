@@ -5,11 +5,19 @@ pub enum CayedError {
     #[msg("Number overflowed")]
     Overflow,
 
+    // Config
+    #[msg("Not authorized to perform this action")]
+    Unauthorized,
+    #[msg("Max grid size cannot exceed 10")]
+    MaxGridSizeTooLarge,
+
     // Create Game
     #[msg("Wager was supplied but below minimum")]
     MinimumWager,
-    #[msg("Grid size must be a multiple of 2")]
+    #[msg("Grid size must be a positive multiple of 2")]
     GridNotEven,
+    #[msg("Grid size exceeds the maximum allowed by config")]
+    GridSizeTooLarge,
 
     // Join Game
     #[msg("Cannot join a game created by yourself")]
@@ -24,6 +32,12 @@ pub enum CayedError {
     ShipsAlreadyPlaced,
     #[msg("Ship coordinates are out of the grid bounds")]
     InvalidShipPlacement,
+    #[msg("Ships must be horizontal or vertical, not diagonal or rectangular")]
+    ShipNotLinear,
+    #[msg("Ship start coordinates must be <= end coordinates")]
+    ShipCoordsReversed,
+    #[msg("Two or more ships occupy the same cell")]
+    ShipOverlap,
 
     // Make move
     #[msg("Can't move game hasn't been joined by any player_2")]
@@ -38,6 +52,8 @@ pub enum CayedError {
     CellAlreadyAttacked,
     #[msg("Ships have not been placed yet")]
     ShipsNotPlaced,
+    #[msg("Game is not in the correct state for this action")]
+    InvalidGameStatus,
 
     // Reveal Winner
     #[msg("Not all ships have been sunk yet")]

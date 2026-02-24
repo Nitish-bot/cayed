@@ -11,6 +11,8 @@ pub struct Game {
     pub revealed_ships_player_1: Vec<ShipCoordinates>,
     #[max_len(5)]
     pub revealed_ships_player_2: Vec<ShipCoordinates>,
+    #[max_len(100)]
+    pub moves: Vec<MoveResult>,
     pub next_move_player_1: bool,
     pub wager: u64,
     pub status: GameStatus,
@@ -25,7 +27,14 @@ pub struct ShipCoordinates {
     pub end_y: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, PartialEq)]
+pub struct MoveResult {
+    pub x: u8,
+    pub y: u8,
+    pub is_hit: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, PartialEq)]
 pub enum GameStatus {
     AwaitingPlayerTwo,
     HidingShips,

@@ -219,8 +219,8 @@ function BattleshipGameInner({
     }
 
     if (status === 'HidingShips') {
-        setPhase('placement');
-        return;
+      setPhase('placement');
+      return;
     }
 
     if (status === 'InProgress') {

@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+use crate::errors::CayedError;
 use crate::state::{config::Config, Vault};
 
 #[derive(Accounts)]
@@ -35,6 +36,20 @@ impl<'info> InitConfig<'info> {
         fee: u16,
         bumps: InitConfigBumps,
     ) -> Result<()> {
+        // If already initialized, only the existing authority can reconfigure
+        if self.config.authority != Pubkey::default() {
+            require!(
+                self.authority.key() == self.config.authority,
+                CayedError::Unauthorized
+            );
+        }
+        // Cap max_grid_size at 10 to fit account space allocations (5 ships, 50 hits)
+        require!(max_grid_size <= 10, CayedError::MaxGridSizeTooLarge);
+        require!(
+            max_grid_size > 0 && max_grid_size % 2 == 0,
+            CayedError::GridNotEven
+        );
+
         self.vault.set_inner(Vault {
             authority: self.authority.key(),
         });

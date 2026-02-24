@@ -6,32 +6,19 @@ use ephemeral_rollups_sdk::consts::PERMISSION_PROGRAM_ID;
 use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
 
 use crate::errors::CayedError;
-use crate::state::{Game, PlayerBoard};
-
-fn all_ships_sunk(board: &PlayerBoard) -> bool {
-    for ship in &board.ship_coordinates {
-        let min_x = ship.start_x.min(ship.end_x);
-        let max_x = ship.start_x.max(ship.end_x);
-        let min_y = ship.start_y.min(ship.end_y);
-        let max_y = ship.start_y.max(ship.end_y);
-
-        for x in min_x..=max_x {
-            for y in min_y..=max_y {
-                if !board.hits_received.iter().any(|h| h.x == x && h.y == y) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
-}
+use crate::state::{Game, GameStatus, PlayerBoard};
 
 #[commit]
 #[derive(Accounts)]
 pub struct RevealWinner<'info> {
     #[account(
+        mut,
         seeds = [b"game", game.id.to_le_bytes().as_ref()],
         bump,
+        constraint = matches!(
+            game.status,
+            GameStatus::InProgress | GameStatus::Completed { .. }
+        ) @ CayedError::InvalidGameStatus,
     )]
     pub game: Account<'info, Game>,
 
@@ -67,8 +54,8 @@ pub struct RevealWinner<'info> {
 
 impl<'info> RevealWinner<'info> {
     pub fn reveal_winner(&mut self) -> Result<()> {
-        let p1_sunk = all_ships_sunk(&self.player1_board);
-        let p2_sunk = all_ships_sunk(&self.player2_board);
+        let p1_sunk = self.player1_board.all_ships_sunk();
+        let p2_sunk = self.player2_board.all_ships_sunk();
         require!(p1_sunk || p2_sunk, CayedError::NotAllShipsSunk);
 
         let winner = if p2_sunk {
@@ -76,6 +63,8 @@ impl<'info> RevealWinner<'info> {
         } else {
             self.game.player_2.unwrap()
         };
+
+        self.game.status = GameStatus::Completed { winner };
         msg!("Winner: {}", winner);
 
         // Clear permissions so boards are no longer restricted
@@ -111,7 +100,8 @@ impl<'info> RevealWinner<'info> {
                 &[p2_bump],
             ]])?;
 
-        // Exit and commit both player boards back to base layer
+        // Exit and commit all game accounts back to base layer
+        self.game.exit(&crate::ID)?;
         self.player1_board.exit(&crate::ID)?;
         self.player2_board.exit(&crate::ID)?;
 
@@ -121,6 +111,7 @@ impl<'info> RevealWinner<'info> {
         commit_and_undelegate_accounts(
             &self.payer,
             vec![
+                &self.game.to_account_info(),
                 &self.player1_board.to_account_info(),
                 &self.player2_board.to_account_info(),
             ],
