@@ -16,7 +16,6 @@ import {
 } from '@client/cayed';
 import { accountType } from '@client/cayed/types/accountType';
 import {
-  Connection as MBConnection,
   AUTHORITY_FLAG,
   createDelegatePermissionInstruction,
   delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
@@ -29,13 +28,16 @@ import {
 } from '@magicblock-labs/ephemeral-rollups-kit';
 import {
   address,
-  appendTransactionMessageInstruction,
+  appendTransactionMessageInstructions,
   assertAccountExists,
   createKeyPairSignerFromBytes,
   createTransactionMessage,
+  getBase64EncodedWireTransaction,
+  getSignatureFromTransaction,
   pipe,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
   type Address,
   type KeyPairSigner,
 } from '@solana/kit';
@@ -54,23 +56,37 @@ const sleep = (ms: number): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-// sendTransaction + poll confirmation via HTTP (avoids WebSocket)
+// Build, sign, send via HTTP and poll confirmation (avoids WebSocket)
 async function sendAndPoll(
-  conn: MBConnection,
-  txMsg: Parameters<MBConnection['sendTransaction']>[0],
-  signers: Parameters<MBConnection['sendTransaction']>[1],
-  opts?: { skipPreflight?: boolean; commitment?: string }
+  conn: Connection,
+  feePayer: KeyPairSigner,
+  instructions: Parameters<Connection['sendTransactionFromInstructions']>[0]['instructions'],
 ) {
-  const sig = await conn.sendTransaction(txMsg, signers, {
-    skipPreflight: opts?.skipPreflight ?? true,
-  });
-  const commitment = opts?.commitment ?? 'confirmed';
+  const { value: latestBlockhash } = await conn.rpc.getLatestBlockhash().send();
+
+  const txMsg = pipe(
+    createTransactionMessage({ version: 0 }),
+    tx => setTransactionMessageFeePayerSigner(feePayer, tx),
+    tx => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
+    tx => appendTransactionMessageInstructions(instructions, tx)
+  );
+
+  const signedTx = await signTransactionMessageWithSigners(txMsg);
+  const sig = getSignatureFromTransaction(signedTx);
+
+  await conn.rpc
+    .sendTransaction(getBase64EncodedWireTransaction(signedTx), {
+      encoding: 'base64',
+      skipPreflight: true,
+    })
+    .send();
+
   for (let i = 0; i < 60; i++) {
     const { value } = await conn.rpc.getSignatureStatuses([sig]).send();
     const status = value[0];
     if (status?.err) throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
     if (
-      status?.confirmationStatus === commitment ||
+      status?.confirmationStatus === 'confirmed' ||
       status?.confirmationStatus === 'finalized'
     ) {
       return sig;
@@ -88,7 +104,7 @@ type MoveLogResult = {
 };
 
 const getLastMoveResult = async (
-  conn: MBConnection,
+  conn: Connection,
   gamePda: Address,
   expectedMoveCount: number
 ): Promise<MoveLogResult> => {
@@ -133,9 +149,9 @@ describe('cayed', () => {
   let player2BoardPda: Address;
 
   let baseConnection: Connection;
-  let ephemeralConnection: MBConnection;
-  let ephemeralConnectionP1: MBConnection;
-  let ephemeralConnectionP2: MBConnection;
+  let ephemeralConnection: Connection;
+  let ephemeralConnectionP1: Connection;
+  let ephemeralConnectionP2: Connection;
 
   const gameId = BigInt(Date.now());
   const gridSize = 4;
@@ -162,7 +178,7 @@ describe('cayed', () => {
     player1 = await createKeyPairSignerFromBytes(player1Bytes);
     player2 = await createKeyPairSignerFromBytes(player2Bytes);
 
-    ephemeralConnection = await MBConnection.create(ephemeralUrl, ephemeralWsUrl);
+    ephemeralConnection = connect(ephemeralUrl, ephemeralWsUrl);
     if (ephemeralUrl.includes('tee')) {
       const authTokenP1 = await getAuthToken(
         ephemeralUrl,
@@ -177,11 +193,11 @@ describe('cayed', () => {
           Promise.resolve(nacl.sign.detached(message, player2Bytes))
       );
 
-      ephemeralConnectionP1 = await MBConnection.create(
+      ephemeralConnectionP1 = connect(
         `${ephemeralUrl}?token=${authTokenP1.token}`,
         ephemeralWsUrl
       );
-      ephemeralConnectionP2 = await MBConnection.create(
+      ephemeralConnectionP2 = connect(
         `${ephemeralUrl}?token=${authTokenP2.token}`,
         ephemeralWsUrl
       );
@@ -441,15 +457,7 @@ describe('cayed', () => {
       ships: p1Ships,
     });
 
-    const { value: latestBlockhash } = await erConnection.rpc.getLatestBlockhash().send();
-    const transactionMessage = pipe(
-      createTransactionMessage({ version: 0 }),
-      tx => setTransactionMessageFeePayerSigner(player1, tx),
-      tx => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
-      tx => appendTransactionMessageInstruction(hideShipsP1Ix, tx)
-    );
-
-    await sendAndPoll(erConnection, transactionMessage, [player1.keyPair]);
+    await sendAndPoll(erConnection, player1, [hideShipsP1Ix]);
 
     // Player 2 hides ships on their board
     const erConnection2 = ephemeralConnectionP2 ?? ephemeralConnection;
@@ -464,17 +472,7 @@ describe('cayed', () => {
       ships: p2Ships,
     });
 
-    const { value: latestBlockhash2 } = await erConnection.rpc
-      .getLatestBlockhash()
-      .send();
-    const transactionMessage2 = pipe(
-      createTransactionMessage({ version: 0 }),
-      tx => setTransactionMessageFeePayerSigner(player2, tx),
-      tx => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash2, tx),
-      tx => appendTransactionMessageInstruction(hideShipsP2Ix, tx)
-    );
-
-    await sendAndPoll(erConnection2, transactionMessage2, [player2.keyPair]);
+    await sendAndPoll(erConnection2, player2, [hideShipsP2Ix]);
   });
 
   it('players can see own board but not opponent board', async () => {
@@ -525,7 +523,7 @@ describe('cayed', () => {
   });
 
   it('makes moves and sinks all ships', async () => {
-    console.log('Playing game, this way take time...');
+    console.log('Playing game, this may take time...');
     const erConnection1 = ephemeralConnectionP1 ?? ephemeralConnection;
     const erConnection2 = ephemeralConnectionP2 ?? ephemeralConnection;
 
@@ -568,15 +566,7 @@ describe('cayed', () => {
           y: attack.y,
         });
 
-        const { value: bhash } = await erConnection1.rpc.getLatestBlockhash().send();
-        const txMsg = pipe(
-          createTransactionMessage({ version: 0 }),
-          tx => setTransactionMessageFeePayerSigner(player1, tx),
-          tx => setTransactionMessageLifetimeUsingBlockhash(bhash, tx),
-          tx => appendTransactionMessageInstruction(ix, tx)
-        );
-
-        await sendAndPoll(erConnection1, txMsg, [player1.keyPair]);
+        await sendAndPoll(erConnection1, player1, [ix]);
         moveCount++;
         const move = await getLastMoveResult(erConnection1, gamePda, moveCount);
         expect(move.x).toBe(attack.x);
@@ -597,15 +587,7 @@ describe('cayed', () => {
             y: attack.y,
           });
 
-          const { value: bhash } = await erConnection2.rpc.getLatestBlockhash().send();
-          const txMsg = pipe(
-            createTransactionMessage({ version: 0 }),
-            tx => setTransactionMessageFeePayerSigner(player2, tx),
-            tx => setTransactionMessageLifetimeUsingBlockhash(bhash, tx),
-            tx => appendTransactionMessageInstruction(ix, tx)
-          );
-
-          await sendAndPoll(erConnection2, txMsg, [player2.keyPair]);
+          await sendAndPoll(erConnection2, player2, [ix]);
           moveCount++;
           const move = await getLastMoveResult(erConnection2, gamePda, moveCount);
           expect(move.x).toBe(attack.x);
@@ -625,15 +607,7 @@ describe('cayed', () => {
             y: 1,
           });
 
-          const { value: bhash } = await erConnection2.rpc.getLatestBlockhash().send();
-          const txMsg = pipe(
-            createTransactionMessage({ version: 0 }),
-            tx => setTransactionMessageFeePayerSigner(player2, tx),
-            tx => setTransactionMessageLifetimeUsingBlockhash(bhash, tx),
-            tx => appendTransactionMessageInstruction(ix, tx)
-          );
-
-          await sendAndPoll(erConnection2, txMsg, [player2.keyPair]);
+          await sendAndPoll(erConnection2, player2, [ix]);
           moveCount++;
           const move = await getLastMoveResult(erConnection2, gamePda, moveCount);
           expect(move.x).toBe(3);
@@ -672,15 +646,7 @@ describe('cayed', () => {
       payer: player1,
     });
 
-    const { value: bhash } = await erConnection.rpc.getLatestBlockhash().send();
-    const txMsg = pipe(
-      createTransactionMessage({ version: 0 }),
-      tx => setTransactionMessageFeePayerSigner(player1, tx),
-      tx => setTransactionMessageLifetimeUsingBlockhash(bhash, tx),
-      tx => appendTransactionMessageInstruction(ix, tx)
-    );
-
-    await sendAndPoll(erConnection, txMsg, [player1.keyPair]);
+    await sendAndPoll(erConnection, player1, [ix]);
 
     await sleep(5000);
 
