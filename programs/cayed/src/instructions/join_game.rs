@@ -49,6 +49,7 @@ impl<'info> JoinGame<'info> {
         }
 
         self.game.player_2 = Some(self.player.key());
+        self.game.status = crate::state::GameStatus::InProgress;
 
         self.player_board.set_inner(PlayerBoard {
             game_id: self.game.id,

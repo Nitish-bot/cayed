@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::{anchor::commit, ephem::commit_accounts};
 
 use crate::{
     errors::CayedError,
     state::{Coordinate, Game, PlayerBoard},
 };
 
+#[commit]
 #[derive(Accounts)]
 pub struct MakeMove<'info> {
     #[account(mut)]
@@ -41,11 +43,8 @@ impl<'info> MakeMove<'info> {
 
         // Validate both players have placed ships
         require!(
-            !self.player_board.ship_coordinates.is_empty(),
-            CayedError::ShipsNotPlaced
-        );
-        require!(
-            !self.opponent_board.ship_coordinates.is_empty(),
+            !self.player_board.ship_coordinates.is_empty()
+                && !self.opponent_board.ship_coordinates.is_empty(),
             CayedError::ShipsNotPlaced
         );
 
@@ -82,7 +81,29 @@ impl<'info> MakeMove<'info> {
         );
 
         // Record the attack on the opponent's board
-        self.opponent_board.hits_received.push(coord);
+        self.opponent_board.hits_received.push(coord.clone());
+
+        let hit_ship = self.opponent_board.ship_coordinates.iter().find(|opcord| {
+            coord.x >= opcord.start_x
+                && coord.x <= opcord.end_x
+                && coord.y >= opcord.start_y
+                && coord.y <= opcord.end_y
+        });
+
+        if let Some(ship) = hit_ship {
+            if is_player1_turn {
+                self.game.revealed_ships_player_1.push(ship.clone());
+            } else {
+                self.game.revealed_ships_player_2.push(ship.clone());
+            }
+
+            commit_accounts(
+                &self.player,
+                vec![&self.game.to_account_info()],
+                &self.magic_context,
+                &self.magic_program,
+            )?;
+        }
 
         Ok(())
     }

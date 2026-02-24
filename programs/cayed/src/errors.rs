@@ -18,6 +18,8 @@ pub enum CayedError {
     GameFull,
 
     // Hide Ships
+    #[msg("Incorrect number of ships placed on grid (0.5 * grid)")]
+    IncorrectShipsLen,
     #[msg("Ships have already been placed on this board")]
     ShipsAlreadyPlaced,
     #[msg("Ship coordinates are out of the grid bounds")]

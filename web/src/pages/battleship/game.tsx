@@ -208,7 +208,7 @@ function BattleshipGameInner({
 
     const status = game.status.__kind;
 
-    if (status === 'Completed' || status === 'AwaitingWinnerReveal') {
+    if (status === 'Completed') {
       setPhase('finished');
       return;
     }
@@ -218,12 +218,12 @@ function BattleshipGameInner({
       return;
     }
 
-    if (status === 'InProgress') {
-      // Check if I've placed ships
-      if (isPlayer && myBoard && myBoard.shipCoordinates.length === 0) {
+    if (status === 'HidingShips') {
         setPhase('placement');
         return;
-      }
+    }
+
+    if (status === 'InProgress') {
       setPhase('battle');
       return;
     }

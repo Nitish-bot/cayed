@@ -5,6 +5,7 @@ import {
   getCreateGameInstruction,
   getCreatePermissionInstruction,
   getDelegatePdaInstruction,
+  getGameDecoder,
   getHideShipsInstruction,
   getInitConfigInstruction,
   getJoinGameInstruction,
@@ -245,7 +246,16 @@ describe('cayed', () => {
       gridSize,
       wager,
     });
-
+    
+    const gamePermission = await permissionPdaFromAccount(gamePda);
+    const createGamePermissionIx = getCreatePermissionInstruction({
+      payer: player1,
+      permissionedAccount:gamePda,
+      permission: gamePermission,
+      members: [],
+      gameId,
+      player: player1.
+  })
     const player1BoardPermission = await permissionPdaFromAccount(player1BoardPda);
     const members = [
       {
@@ -588,6 +598,18 @@ describe('cayed', () => {
         isP1Turn = true;
       }
     }
+    
+    sleep(5000)
+
+    const decoder = getGameDecoder();
+    const gameRaw = await baseConnection.rpc
+      .getAccountInfo(gamePda, { encoding: 'base64' })
+      .send();
+    const gameData = decoder.decode(
+      Uint8Array.from(Buffer.from(gameRaw.value!.data[0], 'base64'))
+    );
+
+    console.log(gameData);
 
     console.log('✅ All of Player 2 ships sunk');
   });
@@ -629,7 +651,6 @@ describe('cayed', () => {
     const p1Data = decoder.decode(
       Uint8Array.from(Buffer.from(p1Raw.value!.data[0], 'base64'))
     );
-    console.log('Player 1 board:', stringify(p1Data));
     expect(p1Data.player).toBe(player1.address);
     expect(p1Data.gameId).toBe(gameId);
     expect(p1Data.shipCoordinates.length).toBe(2);
@@ -643,7 +664,6 @@ describe('cayed', () => {
     const p2Data = decoder.decode(
       Uint8Array.from(Buffer.from(p2Raw.value!.data[0], 'base64'))
     );
-    console.log('Player 2 board:', stringify(p2Data));
     expect(p2Data.player).toBe(player2.address);
     expect(p2Data.gameId).toBe(gameId);
     expect(p2Data.shipCoordinates.length).toBe(2);

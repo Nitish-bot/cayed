@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::{anchor::delegate, cpi::DelegateConfig};
 
+use crate::state::AccountType;
+
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegatePda {
@@ -13,15 +15,23 @@ pub struct DelegatePda {
 }
 
 impl<'info> DelegatePda<'info> {
-    pub fn del_pda(&mut self, game_id: u64, player: Pubkey) -> Result<()> {
-        let game_id_bytes = game_id.to_le_bytes();
-        let player_id_bytes = player.to_bytes();
-        let signer_seeds: &[&[u8]] = &[b"player", game_id_bytes.as_ref(), player_id_bytes.as_ref()];
+    pub fn del_pda(&mut self, account_type: AccountType) -> Result<()> {
+        let mut seed_data = account_type.derive_seeds();
+        let (_, bump) = Pubkey::find_program_address(
+            &seed_data.iter().map(|s| s.as_slice()).collect::<Vec<_>>(),
+            &crate::ID,
+        );
+        seed_data.push(vec![bump]);
+
+        let signer_seeds = seed_data
+            .iter()
+            .map(|s| s.as_slice())
+            .collect::<Vec<&[u8]>>();
 
         let validator = self.validator.as_ref().map(|v| v.key());
         self.delegate_pda(
             &self.payer,
-            signer_seeds,
+            &signer_seeds,
             DelegateConfig {
                 validator,
                 ..Default::default()

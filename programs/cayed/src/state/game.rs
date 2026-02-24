@@ -28,9 +28,9 @@ pub struct ShipCoordinates {
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone)]
 pub enum GameStatus {
     AwaitingPlayerTwo,
+    HidingShips,
     InProgress,
-    AwaitingWinnerReveal,
     Completed { winner: Pubkey },
     Cancelled,
-    Forfeited,
+    Forfeited { winner: Pubkey },
 }

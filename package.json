@@ -9,7 +9,8 @@
     "lint:fix": "bunx eslint . --fix",
     "format": "bunx prettier --check .",
     "format:fix": "bunx prettier --write .",
-    "test": "./test.sh"
+    "test": "./test.sh",
+    "detest": "bun test --timeout 1000000 tests/cayed.test.ts"
   },
   "dependencies": {
     "@magicblock-labs/ephemeral-rollups-kit": "^0.8.5",

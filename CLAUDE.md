@@ -110,9 +110,9 @@ Tracks the state of a single game between two players.
 #### `GameStatus` (enum)
 
 ```
-AwaitingPlayerTwo → InProgress → AwaitingWinnerReveal → Completed { winner }
+AwaitingPlayerTwo → HidingShips → InProgress → Completed { winner }
                                                       → Cancelled
-                                                      → Forfeited
+                                                      → Forfeited { winner }
 ```
 
 #### `PlayerBoard` (seed: `["player", game_id.to_le_bytes(), player.as_ref()]`)

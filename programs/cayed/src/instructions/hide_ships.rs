@@ -29,6 +29,12 @@ impl<'info> HideShips<'info> {
             self.player_board.ship_coordinates.is_empty(),
             CayedError::ShipsAlreadyPlaced
         );
+        // TODO: Calculate total_area (tiles covered by ships) and check constraint on that too
+        let required_ship_len = (self.game.grid_size / 2) as usize;
+        require!(
+            ships.len().eq(&required_ship_len),
+            CayedError::IncorrectShipsLen,
+        );
 
         let grid_size = self.game.grid_size;
         let half = grid_size / 2;

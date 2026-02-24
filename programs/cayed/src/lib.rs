@@ -9,6 +9,7 @@ pub mod instructions;
 pub mod state;
 
 use instructions::*;
+use state::AccountType;
 
 declare_id!("6xLHbAHw2ibrmdVEPHm7jDkDmghw3fp3gUCBy511DMKV");
 
@@ -49,18 +50,15 @@ pub mod cayed {
 
     pub fn create_permission(
         ctx: Context<CreatePermission>,
-        game_id: u64,
-        player: Pubkey,
-        bump: u8,
+        account_type: AccountType,
         members: Option<Vec<Member>>,
     ) -> Result<()> {
-        ctx.accounts
-            .create_permission(game_id, player, bump, members)?;
+        ctx.accounts.create_permission(account_type, members)?;
         Ok(())
     }
 
-    pub fn delegate_pda(ctx: Context<DelegatePda>, game_id: u64, player: Pubkey) -> Result<()> {
-        ctx.accounts.del_pda(game_id, player)?;
+    pub fn delegate_pda(ctx: Context<DelegatePda>, account_type: AccountType) -> Result<()> {
+        ctx.accounts.del_pda(account_type)?;
         Ok(())
     }
 }
