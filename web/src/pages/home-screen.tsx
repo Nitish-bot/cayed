@@ -26,21 +26,16 @@ export function Index() {
     <div className="flex min-h-[calc(100vh-60px)] flex-col items-center px-4 py-16">
       {/* Title */}
       <div className="mb-4 text-center">
-        <h1
-          className="text-arcade-cyan font-mono text-4xl font-bold tracking-[0.4em] uppercase sm:text-5xl"
-          style={{ textShadow: '0 0 20px rgb(0 255 204 / 0.3)' }}
-        >
+        <h1 className="text-arcade-cyan font-pixel text-2xl uppercase sm:text-3xl">
           CAYED
         </h1>
-        <p className="text-arcade-muted mt-2 font-mono text-sm tracking-[0.5em] uppercase">
-          ARCADE
-        </p>
+        <p className="text-arcade-muted font-pixel mt-3 text-[8px] uppercase">ARCADE</p>
       </div>
 
       {/* Divider */}
-      <div className="bg-arcade-border my-8 h-px w-full max-w-lg" />
+      <div className="bg-arcade-border my-8 h-1 w-full max-w-lg" />
 
-      <p className="text-arcade-muted mb-12 font-mono text-xs tracking-widest uppercase">
+      <p className="text-arcade-muted font-pixel mb-12 text-[8px] uppercase">
         SELECT GAME
       </p>
 
@@ -51,9 +46,9 @@ export function Index() {
             key={game.id}
             onClick={() => game.available && navigate(game.path)}
             disabled={!game.available}
-            className={`group relative border-2 p-8 text-center transition-all duration-100 ${
+            className={`group border-4 p-8 text-center transition-none ${
               game.available
-                ? 'border-arcade-cyan bg-arcade-panel hover:bg-arcade-cyan/5 hover:shadow-[0_0_20px_rgba(0,255,204,0.15)] active:scale-[0.98]'
+                ? 'border-arcade-cyan bg-arcade-panel hover:bg-arcade-cyan/10 active:scale-[0.98]'
                 : 'border-arcade-border bg-arcade-panel/50 cursor-not-allowed opacity-60'
             }`}
           >
@@ -64,24 +59,24 @@ export function Index() {
             </div>
 
             <h2
-              className={`font-mono text-lg font-bold tracking-widest uppercase ${
+              className={`font-pixel text-[10px] uppercase ${
                 game.available ? 'text-arcade-text' : 'text-arcade-muted'
               }`}
             >
               {game.name}
             </h2>
 
-            <p className="text-arcade-muted mt-2 font-mono text-xs tracking-wider uppercase">
+            <p className="text-arcade-muted font-pixel mt-3 text-[6px] uppercase">
               {game.description}
             </p>
 
             <div className="mt-6">
               {game.available ? (
-                <span className="border-arcade-cyan text-arcade-cyan group-hover:bg-arcade-cyan group-hover:text-arcade-bg inline-block border px-4 py-1 font-mono text-xs tracking-widest uppercase transition-colors">
+                <span className="border-arcade-cyan text-arcade-cyan group-hover:bg-arcade-cyan group-hover:text-arcade-bg font-pixel inline-block border-4 px-4 py-1.5 text-[7px] uppercase transition-none">
                   PLAY
                 </span>
               ) : (
-                <span className="border-arcade-border text-arcade-muted inline-block border px-4 py-1 font-mono text-xs tracking-widest uppercase">
+                <span className="border-arcade-border text-arcade-muted font-pixel inline-block border-4 px-4 py-1.5 text-[7px] uppercase">
                   COMING SOON
                 </span>
               )}
@@ -91,7 +86,7 @@ export function Index() {
       </div>
 
       <div className="mt-16 text-center">
-        <p className="text-arcade-border font-mono text-[10px] tracking-widest uppercase">
+        <p className="text-arcade-border font-pixel text-[6px] uppercase">
           ── ON-CHAIN GAMING ──
         </p>
       </div>

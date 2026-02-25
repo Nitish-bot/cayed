@@ -178,13 +178,15 @@ export class GameService {
     const { gamePda, vaultPda } = await deriveGamePdas(gameId, player.address);
     const playerBoardPda = await derivePlayerBoardPda(gameId, player.address);
 
-    // 1. Join game
+    // 1. Join game — separate tx so the total size stays under 1232 bytes
     const joinGameIx = getJoinGameInstruction({
       player,
       game: gamePda,
       playerBoard: playerBoardPda,
       vault: vaultPda,
     });
+
+    await this.sendOnDevnet(player, [joinGameIx]);
 
     // 2. Delegate the Game PDA
     const gameDelegateIxs = await this.buildGameDelegationIx(player, gamePda, gameId);
@@ -196,11 +198,8 @@ export class GameService {
       gameId
     );
 
-    await this.sendOnDevnet(player, [
-      joinGameIx,
-      ...gameDelegateIxs,
-      ...boardDelegateIxs,
-    ]);
+    // Send all 4 delegation instructions together (same pattern as createGame)
+    await this.sendOnDevnet(player, [...gameDelegateIxs, ...boardDelegateIxs]);
 
     return { playerBoardPda };
   }

@@ -6,14 +6,11 @@ export function Nav() {
   const navigate = useNavigate();
 
   return (
-    <nav className="border-arcade-border bg-arcade-bg/95 sticky top-0 z-40 border-b-2 backdrop-blur-sm">
+    <nav className="border-arcade-border bg-arcade-bg sticky top-0 z-40 border-b-4">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <button
           onClick={() => navigate('/')}
-          className="text-arcade-cyan font-mono text-xl font-bold tracking-[0.3em] uppercase transition-all duration-100 hover:text-white"
-          style={{
-            textShadow: '0 0 10px rgb(0 255 204 / 0.4)',
-          }}
+          className="text-arcade-cyan font-pixel text-xs uppercase transition-none hover:text-white"
         >
           CAYED
         </button>

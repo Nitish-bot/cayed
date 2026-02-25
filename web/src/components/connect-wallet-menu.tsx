@@ -35,7 +35,7 @@ function WalletOption({
     <button
       onClick={handleClick}
       disabled={isConnecting}
-      className="text-arcade-text hover:bg-arcade-cyan/10 hover:text-arcade-cyan flex w-full items-center gap-3 px-4 py-3 text-left font-mono text-sm tracking-wider uppercase transition-colors duration-100 disabled:opacity-40"
+      className="text-arcade-text hover:bg-arcade-cyan/10 hover:text-arcade-cyan font-pixel flex w-full items-center gap-3 px-4 py-3 text-left text-[7px] uppercase transition-none disabled:opacity-40"
     >
       {wallet.icon && (
         <img src={wallet.icon} alt="" className="size-5 shrink-0" aria-hidden />
@@ -66,7 +66,7 @@ function DisconnectButton({
         }
       }}
       disabled={isDisconnecting}
-      className="text-arcade-red hover:bg-arcade-red/10 w-full px-4 py-3 text-left font-mono text-sm tracking-wider uppercase transition-colors duration-100 disabled:opacity-40"
+      className="text-arcade-red hover:bg-arcade-red/10 font-pixel w-full px-4 py-3 text-left text-[7px] uppercase transition-none disabled:opacity-40"
     >
       {isDisconnecting ? 'DISCONNECTING...' : 'DISCONNECT'}
     </button>
@@ -107,7 +107,7 @@ export function ConnectWalletMenu() {
     <div ref={menuRef} className="relative">
       <button
         onClick={() => setIsOpen(o => !o)}
-        className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg border-2 px-4 py-2 font-mono text-sm tracking-widest uppercase shadow-[0_0_8px_rgba(0,255,204,0.25)] transition-all duration-100 active:scale-95"
+        className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel border-4 px-4 py-2 text-[7px] uppercase transition-none active:scale-95"
       >
         {selectedAccount
           ? `${selectedAccount.address.slice(0, 4)}..${selectedAccount.address.slice(-4)}`
@@ -115,14 +115,14 @@ export function ConnectWalletMenu() {
       </button>
 
       {isOpen && (
-        <div className="border-arcade-border bg-arcade-panel absolute right-0 z-50 mt-2 min-w-60 border-2 shadow-[0_0_20px_rgba(0,255,204,0.1)]">
+        <div className="border-arcade-border bg-arcade-panel absolute right-0 z-50 mt-2 min-w-60 border-4">
           {selectedAccount && ownerWallet ? (
             <>
               <div className="border-arcade-border border-b px-4 py-3">
-                <p className="text-arcade-muted font-mono text-xs tracking-wider uppercase">
+                <p className="text-arcade-muted font-pixel text-[6px] uppercase">
                   CONNECTED
                 </p>
-                <p className="text-arcade-cyan mt-1 font-mono text-sm">
+                <p className="text-arcade-cyan font-pixel mt-1 text-[7px]">
                   {selectedAccount.address.slice(0, 8)}...
                   {selectedAccount.address.slice(-8)}
                 </p>
@@ -136,13 +136,13 @@ export function ConnectWalletMenu() {
               />
             </>
           ) : connectableWallets.length === 0 ? (
-            <div className="text-arcade-muted px-4 py-3 font-mono text-sm">
+            <div className="text-arcade-muted font-pixel px-4 py-3 text-[7px]">
               NO WALLETS DETECTED
             </div>
           ) : (
             <>
               <div className="border-arcade-border border-b px-4 py-2">
-                <p className="text-arcade-muted font-mono text-xs tracking-wider uppercase">
+                <p className="text-arcade-muted font-pixel text-[6px] uppercase">
                   SELECT WALLET
                 </p>
               </div>

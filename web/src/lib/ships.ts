@@ -22,9 +22,9 @@ export function getShipSize(ship: ShipCoordinatesArgs): number {
   return getShipCells(ship).length;
 }
 
-/** Check if a coordinate is within grid bounds */
+/** Check if a coordinate is within grid bounds (board is gridSize wide × gridSize/2 tall) */
 function inBounds(x: number, y: number, gridSize: number): boolean {
-  return x >= 0 && y >= 0 && x < gridSize && y < gridSize;
+  return x >= 0 && y >= 0 && x < gridSize && y < gridSize / 2;
 }
 
 /** Validate a ship placement against grid bounds and existing ships */

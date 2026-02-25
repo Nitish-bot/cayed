@@ -1,43 +1,31 @@
-import { ArrowLeft } from '@untitledui/icons';
 import { useNavigate } from 'react-router';
 
-import { Button } from '@/components/base/buttons/button';
-
 export function NotFound() {
-  const router = useNavigate();
+  const navigate = useNavigate();
 
   return (
-    <section className="bg-primary flex min-h-screen items-start py-16 md:items-center md:py-24">
-      <div className="max-w-container mx-auto grow px-4 md:px-8">
-        <div className="flex w-full max-w-3xl flex-col gap-8 md:gap-12">
-          <div className="flex flex-col gap-4 md:gap-6">
-            <div className="flex flex-col gap-3">
-              <span className="text-md text-brand-secondary font-semibold">
-                404 error
-              </span>
-              <h1 className="text-display-md text-primary md:text-display-lg lg:text-display-xl font-semibold">
-                We can’t find that page
-              </h1>
-            </div>
-            <p className="text-tertiary text-lg md:text-xl">
-              Sorry, the page you are looking for doesn't exist or has been moved.
-            </p>
-          </div>
+    <section className="bg-arcade-bg flex min-h-screen flex-col items-center justify-center px-4">
+      <p className="text-arcade-red font-pixel mb-4 text-[8px] uppercase">ERROR 404</p>
+      <h1 className="text-arcade-cyan font-pixel mb-6 text-xl uppercase">
+        GAME NOT FOUND
+      </h1>
+      <p className="text-arcade-muted font-pixel mb-10 text-[7px]">
+        THIS SECTOR IS EMPTY, CAPTAIN
+      </p>
 
-          <div className="flex flex-col-reverse gap-3 sm:flex-row">
-            <Button
-              color="secondary"
-              size="xl"
-              iconLeading={ArrowLeft}
-              onClick={() => router(-1)}
-            >
-              Go back
-            </Button>
-            <Button size="xl" onClick={() => router(-1)}>
-              Take me home
-            </Button>
-          </div>
-        </div>
+      <div className="flex gap-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="border-arcade-border text-arcade-muted hover:border-arcade-cyan hover:text-arcade-cyan font-pixel border-4 px-5 py-2 text-[7px] uppercase transition-none"
+        >
+          &lt; GO BACK
+        </button>
+        <button
+          onClick={() => navigate('/')}
+          className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel border-4 px-5 py-2 text-[7px] uppercase transition-none"
+        >
+          HOME
+        </button>
       </div>
     </section>
   );

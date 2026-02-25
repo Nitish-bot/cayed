@@ -28,15 +28,20 @@ type Props = {
 };
 
 const STATE_CLASSES: Record<CellState, string> = {
-  empty: 'bg-arcade-panel border-arcade-border hover:bg-[rgb(30_30_50)] cursor-pointer',
-  ship: 'bg-arcade-green/80 border-arcade-green/40',
-  hit: 'bg-arcade-red border-arcade-red/40',
-  miss: 'bg-[rgb(40_40_70)] border-[rgb(60_60_90)]',
-  sunk: 'bg-arcade-red/60 border-arcade-red/30',
-  preview: 'bg-arcade-cyan/30 border-arcade-cyan/40',
-  'preview-invalid': 'bg-arcade-red/30 border-arcade-red/40',
+  empty: 'bg-arcade-panel border-arcade-border hover:bg-[rgb(35_28_55)] cursor-pointer',
+  ship: 'bg-arcade-green/70 border-arcade-green',
+  hit: 'bg-arcade-red border-arcade-red',
+  miss: 'bg-[rgb(40_35_60)] border-[rgb(65_55_90)]',
+  sunk: 'bg-arcade-red/50 border-arcade-red/60',
+  preview: 'bg-arcade-cyan/25 border-arcade-cyan/50',
+  'preview-invalid': 'bg-arcade-red/25 border-arcade-red/50',
 };
 
+/**
+ * Renders a game grid with correct on-chain dimensions:
+ * - Columns: gridSize
+ * - Rows: gridSize / 2  (each player's board is a half-grid)
+ */
 export function GameGrid({
   gridSize,
   ships = [],
@@ -50,6 +55,8 @@ export function GameGrid({
   onCellHover,
   label,
 }: Props) {
+  const rows = gridSize / 2;
+
   // Build lookup maps
   const cellStates = useMemo(() => {
     const map = new Map<string, CellState>();
@@ -93,14 +100,14 @@ export function GameGrid({
   return (
     <div className="inline-block">
       {label && (
-        <p className="text-arcade-muted mb-2 text-center font-mono text-xs tracking-widest uppercase">
+        <p className="text-arcade-muted font-pixel mb-2 text-center text-[8px] tracking-widest uppercase">
           {label}
         </p>
       )}
 
       <div
-        className="inline-grid"
-        style={{ gridTemplateColumns: `28px repeat(${gridSize}, 1fr)` }}
+        className="inline-grid gap-0"
+        style={{ gridTemplateColumns: `24px repeat(${gridSize}, 1fr)` }}
       >
         {/* Top-left corner */}
         <div />
@@ -108,19 +115,19 @@ export function GameGrid({
         {colHeaders.map(h => (
           <div
             key={h}
-            className="text-arcade-muted flex h-5 items-center justify-center font-mono text-[10px]"
+            className="text-arcade-muted font-pixel flex h-5 items-center justify-center text-[7px]"
           >
             {h}
           </div>
         ))}
 
-        {/* Rows */}
-        {Array.from({ length: gridSize }, (_, y) => (
+        {/* Rows – only gridSize/2 rows */}
+        {Array.from({ length: rows }, (_, y) => (
           <>
             {/* Row header */}
             <div
               key={`rh-${y}`}
-              className="text-arcade-muted flex w-7 items-center justify-center font-mono text-[10px]"
+              className="text-arcade-muted font-pixel flex w-6 items-center justify-center text-[7px]"
             >
               {y + 1}
             </div>
@@ -132,7 +139,7 @@ export function GameGrid({
               return (
                 <button
                   key={`${x}-${y}`}
-                  className={`flex size-10 items-center justify-center border transition-colors duration-75 sm:size-11 md:size-12 ${STATE_CLASSES[state]} ${
+                  className={`flex size-10 items-center justify-center border-2 transition-none sm:size-11 md:size-12 ${STATE_CLASSES[state]} ${
                     isClickable ? 'cursor-crosshair' : interactive ? 'cursor-default' : ''
                   }`}
                   onClick={() => onCellClick?.({ x, y })}
@@ -142,13 +149,13 @@ export function GameGrid({
                   type="button"
                 >
                   {state === 'hit' && (
-                    <span className="font-mono text-sm font-bold text-white">✕</span>
+                    <span className="font-pixel text-[10px] text-white">✕</span>
                   )}
                   {state === 'miss' && (
-                    <span className="text-arcade-muted text-xs">•</span>
+                    <span className="text-arcade-muted font-pixel text-[8px]">·</span>
                   )}
                   {state === 'ship' && (
-                    <span className="text-arcade-green text-xs">■</span>
+                    <span className="text-arcade-green font-pixel text-[8px]">■</span>
                   )}
                 </button>
               );

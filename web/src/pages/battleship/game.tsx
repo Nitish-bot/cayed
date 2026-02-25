@@ -1,15 +1,12 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  fetchMaybeGame,
   fetchMaybePlayerBoard,
-  getHideShipsInstruction,
-  getMakeMoveInstruction,
   type Game,
   type PlayerBoard,
   type ShipCoordinatesArgs,
 } from '@client/cayed';
-import { address, isSome, type Address, type KeyPairSigner } from '@solana/kit';
+import { address, isSome, type Address } from '@solana/kit';
 import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate, useParams } from 'react-router';
@@ -18,8 +15,9 @@ import { GameGrid } from '@/components/battleship/game-grid';
 import { ChainContext } from '@/context/chain-context';
 import { useGameService } from '@/context/game-service-provider';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
-import { getShipSizes } from '@/lib/constants';
-import { sendTransactionWithWallet } from '@/lib/send-transaction';
+import { useClipboard } from '@/hooks/use-clipboard';
+import { getHitCells, getMissCells } from '@/lib/bitmask';
+import { formatSol, getShipSizes, gridDisplay, truncateAddress } from '@/lib/constants';
 import {
   buildShip,
   cellKey,
@@ -27,11 +25,20 @@ import {
   validateShipPlacement,
   type CellCoord,
 } from '@/lib/ships';
+import { fetchGameAccount } from '@/services/fetch-accounts';
 import { deriveGamePda, derivePlayerBoardPda } from '@/services/pda';
 
-type GamePhase = 'loading' | 'waiting' | 'placement' | 'battle' | 'finished';
+type GamePhase =
+  | 'loading'
+  | 'waiting'
+  | 'placement'
+  | 'waiting-opponent-ships'
+  | 'battle'
+  | 'finished'
+  | 'revealed';
 
 const POLL_MS = 3000;
+const ERROR_DISMISS_MS = 6000;
 
 export function BattleshipGame() {
   const { gameId: gameIdStr } = useParams<{ gameId: string }>();
@@ -40,7 +47,7 @@ export function BattleshipGame() {
   if (!selectedWalletAccount) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-arcade-muted font-mono text-sm tracking-wider uppercase">
+        <p className="text-arcade-muted font-pixel text-[10px] tracking-wider uppercase">
           CONNECT WALLET TO PLAY
         </p>
       </div>
@@ -72,6 +79,7 @@ function BattleshipGameInner({
   const [phase, setPhase] = useState<GamePhase>('loading');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [revealing, setRevealing] = useState(false);
 
   // Ship placement state
   const [placedShips, setPlacedShips] = useState<ShipCoordinatesArgs[]>([]);
@@ -79,10 +87,8 @@ function BattleshipGameInner({
   const [orientation, setOrientation] = useState<'h' | 'v'>('h');
   const [hoveredCell, setHoveredCell] = useState<CellCoord | null>(null);
 
-  // Attack tracking (local)
-  const [myAttacks, setMyAttacks] = useState<Map<string, 'hit' | 'miss'>>(new Map());
-
   const gameService = useGameService();
+  const { copied, copy } = useClipboard();
 
   // ── Derived ──
   const myAddress = address(account.address);
@@ -94,10 +100,15 @@ function BattleshipGameInner({
       ? game.player2.value
       : null
     : (game?.player1 ?? null);
+
+  // FIX: Turn detection based on total moves (mirrors on-chain logic)
+  const totalMoves = game?.moves.length ?? 0;
+  const isPlayer1Turn = game ? (totalMoves % 2 === 0) === game.nextMovePlayer1 : false;
   const isMyTurn =
-    game && ((isPlayer1 && game.nextMovePlayer1) || (isPlayer2 && !game.nextMovePlayer1));
+    game && ((isPlayer1 && isPlayer1Turn) || (isPlayer2 && !isPlayer1Turn));
 
   const shipSizes = useMemo(() => (game ? getShipSizes(game.gridSize) : []), [game]);
+  const myShipsPlaced = myBoard ? myBoard.shipCoordinates.length > 0 : false;
 
   // ── PDA derivation ──
   const pdaRef = useRef<{
@@ -129,7 +140,7 @@ function BattleshipGameInner({
     if (!opponentAddress) return;
     let cancelled = false;
     async function derive() {
-      const opponentBoardPda = await derivePlayerBoardPda(gameId, opponentAddress!)
+      const opponentBoardPda = await derivePlayerBoardPda(gameId, opponentAddress!);
       if (cancelled) return;
       pdaRef.current.opponentBoardPda = opponentBoardPda;
     }
@@ -147,31 +158,40 @@ function BattleshipGameInner({
       let ephemeral = false;
       let maybeGame;
       try {
-        maybeGame = await fetchMaybeGame(gameService.devnet.rpc, pdaRef.current.gamePda);
-        if (!maybeGame.exists) throw new Error('Game does not exist on base layer ie game should be joined by p2')
-      } catch (e1) {
-        try {
-          maybeGame = await fetchMaybeGame(gameService.ephemeral.rpc, pdaRef.current.gamePda);
-          // eslint-disable-next-line
-          if (!maybeGame.exists) throw new Error('Game does not exist on ephemeral layer either?? try sleeping for change to surface')
+        maybeGame = await fetchGameAccount(gameService.devnet, pdaRef.current.gamePda);
+        if (!maybeGame.exists) {
+          // Game not found on base layer — likely delegated to ER after p2 joined
           ephemeral = true;
-        } catch(e2) {
-          console.error('could not find the game account on base or ephemeral')
-          console.error(e1)
-          console.error(e2)
-          setError('GameAccount not found')
+          maybeGame = await fetchGameAccount(
+            gameService.ephemeral,
+            pdaRef.current.gamePda
+          );
+        }
+      } catch (baseErr) {
+        try {
+          maybeGame = await fetchGameAccount(
+            gameService.ephemeral,
+            pdaRef.current.gamePda
+          );
+          ephemeral = true;
+        } catch (ephErr) {
+          console.error('Could not find game on base or ephemeral', baseErr, ephErr);
+          setError('Game not found');
           return;
         }
       }
+
+      if (!maybeGame?.exists) {
+        setError('Game account not found — it may still be confirming');
+        return;
+      }
+
       setGame(maybeGame.data);
-      const rpc = ephemeral ? gameService.ephemeral.rpc : gameService.devnet.rpc
+      const rpc = ephemeral ? gameService.ephemeral.rpc : gameService.devnet.rpc;
       // Fetch my board
       if (pdaRef.current.myBoardPda) {
         try {
-          const maybeBoard = await fetchMaybePlayerBoard(
-            rpc,
-            pdaRef.current.myBoardPda
-          );
+          const maybeBoard = await fetchMaybePlayerBoard(rpc, pdaRef.current.myBoardPda);
           if (maybeBoard.exists) setMyBoard(maybeBoard.data);
         } catch {
           /* board may not exist yet */
@@ -215,6 +235,11 @@ function BattleshipGameInner({
 
     const status = game.status.__kind;
 
+    if (status === 'WinnerRevealed') {
+      setPhase('revealed');
+      return;
+    }
+
     if (status === 'Completed') {
       setPhase('finished');
       return;
@@ -226,7 +251,12 @@ function BattleshipGameInner({
     }
 
     if (status === 'HidingShips') {
-      setPhase('placement');
+      // If MY ships are already placed, show waiting state
+      if (myShipsPlaced) {
+        setPhase('waiting-opponent-ships');
+      } else {
+        setPhase('placement');
+      }
       return;
     }
 
@@ -236,33 +266,32 @@ function BattleshipGameInner({
     }
 
     setPhase('loading');
-  }, [game, myBoard, isPlayer]);
+  }, [game, myBoard, isPlayer, myShipsPlaced]);
 
-  // ── Sync attack map from opponent board ──
-  useEffect(() => {
-    if (!game) return;
-    setMyAttacks(prev => {
-      const newAttacks = new Map(prev);
-      const prevAttacksLen = prev.keys.length
-
-      /// !! I could be wrong with the lookup calc here
-      const isPlayer1Turn = game.nextMovePlayer1;
-      const startIndex = isPlayer1 ? ( isPlayer1Turn ? 0 : 1 ) : ( isPlayer1Turn ? 1 : 0 );
-      const lookupIndex = startIndex + 2 * prevAttacksLen;
-      for (let i = lookupIndex; i < game.moves.length; i += 2) {
-        const move = game.moves[i];
-        const key = cellKey(move.x, move.y)
-        const value = move.isHit === true ? 'hit' : 'miss';
-        newAttacks.set(key, value)
-      }
-
-      return newAttacks;
-    });
+  // ── Extract my attacks from game.moves ──
+  // On-chain, moves are stored in alternating order.
+  // If nextMovePlayer1=true, moves[0]=P1's attack, moves[1]=P2's, etc.
+  // "My attacks" are the moves I made (every other move starting from my offset).
+  const myAttacks = useMemo(() => {
+    if (!game) return new Map<string, 'hit' | 'miss'>();
+    const map = new Map<string, 'hit' | 'miss'>();
+    // My attacks start at index 0 if I go first, 1 if opponent goes first
+    const myStartIdx = isPlayer1 === game.nextMovePlayer1 ? 0 : 1;
+    for (let i = myStartIdx; i < game.moves.length; i += 2) {
+      const move = game.moves[i]!;
+      map.set(cellKey(move.x, move.y), move.isHit ? 'hit' : 'miss');
+    }
+    return map;
   }, [game, isPlayer1]);
 
   // ── Ship placement preview ──
   const previewShip = useMemo(() => {
-    if (phase !== 'placement' || !hoveredCell || currentShipIdx >= shipSizes.length || !game)
+    if (
+      phase !== 'placement' ||
+      !hoveredCell ||
+      currentShipIdx >= shipSizes.length ||
+      !game
+    )
       return null;
     const size = shipSizes[currentShipIdx];
     const ship = buildShip(hoveredCell.x, hoveredCell.y, size, orientation);
@@ -293,7 +322,7 @@ function BattleshipGameInner({
         gamePda: pdaRef.current.gamePda,
         playerBoardPda: pdaRef.current.myBoardPda,
         ships: placedShips,
-      })
+      });
 
       // Refresh state
       await fetchState();
@@ -320,11 +349,13 @@ function BattleshipGameInner({
         return;
 
       const key = cellKey(coord.x, coord.y);
-      /// !! I should probably do something when trying to attack
-      /// !! an already attacked square
-      if (myAttacks.has(key)) return;
+      if (myAttacks.has(key)) {
+        setError('Already attacked this cell!');
+        return;
+      }
 
       setSending(true);
+      setError(null);
       try {
         await gameService.makeMove({
           player: signer,
@@ -334,20 +365,10 @@ function BattleshipGameInner({
           opponentBoardPda: pdaRef.current.opponentBoardPda,
           x: coord.x,
           y: coord.y,
-        })
-        
+        });
+
         // Refresh to get hit/miss result
         await fetchState();
-
-        // Determine hit or miss from updated opponent board
-        const updated = new Map(myAttacks);
-        // Check if the coordinate is now in opponent's hits_received
-        if (opponentBoard?.hitsReceived.some(h => h.x === coord.x && h.y === coord.y)) {
-          updated.set(key, 'hit');
-        } else {
-          updated.set(key, 'miss');
-        }
-        setMyAttacks(updated);
       } catch (err) {
         console.error('Attack error:', err);
         setError(`Attack failed: ${(err as Error).message}`);
@@ -355,24 +376,69 @@ function BattleshipGameInner({
         setSending(false);
       }
     },
-    [
-      signer,
-      isMyTurn,
-      sending,
-      opponentAddress,
-      myAttacks,
-      opponentBoard,
-      connection,
-      fetchState,
-    ]
+    [signer, isMyTurn, sending, opponentAddress, myAttacks, gameService, fetchState]
   );
+
+  // ── Reveal winner (auto or manual) ──
+  const handleRevealWinner = useCallback(async () => {
+    if (
+      !signer ||
+      !pdaRef.current.gamePda ||
+      !pdaRef.current.myBoardPda ||
+      !pdaRef.current.opponentBoardPda
+    )
+      return;
+    setRevealing(true);
+    try {
+      await gameService.revealWinner({
+        payer: signer,
+        gamePda: pdaRef.current.gamePda,
+        player1BoardPda: isPlayer1
+          ? pdaRef.current.myBoardPda
+          : pdaRef.current.opponentBoardPda,
+        player2BoardPda: isPlayer1
+          ? pdaRef.current.opponentBoardPda
+          : pdaRef.current.myBoardPda,
+      });
+      await fetchState();
+    } catch (err) {
+      console.error('Reveal winner error:', err);
+      setError(`Reveal failed: ${(err as Error).message}`);
+    } finally {
+      setRevealing(false);
+    }
+  }, [signer, isPlayer1, gameService, fetchState]);
+
+  // ── Keyboard shortcut: R to rotate ships ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'r' || e.key === 'R') {
+        if (phase === 'placement') {
+          setOrientation(o => (o === 'h' ? 'v' : 'h'));
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [phase]);
+
+  // ── Auto-dismiss errors ──
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), ERROR_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   // ── Render helpers ──
-  const myBoardHits: CellCoord[] = useMemo(
-    () => myBoard?.hitsReceived.map(h => ({ x: h.x, y: h.y })) ?? [],
-    [myBoard]
-  );
+  const myBoardHits: CellCoord[] = useMemo(() => {
+    if (!myBoard) return [];
+    return getHitCells(myBoard, game?.gridSize ?? 0);
+  }, [myBoard, game]);
 
+  const myBoardMisses: CellCoord[] = useMemo(() => {
+    if (!myBoard) return [];
+    return getMissCells(myBoard, game?.gridSize ?? 0);
+  }, [myBoard, game]);
   const attackHits: CellCoord[] = useMemo(
     () =>
       [...myAttacks.entries()]
@@ -397,23 +463,43 @@ function BattleshipGameInner({
 
   const winner =
     game?.status.__kind === 'Completed'
-      ? (game.status as { __kind: 'Completed'; winner: Address }).winner
-      : null;
+      ? game.status.winner
+      : game?.status.__kind === 'WinnerRevealed'
+        ? game.status.winner
+        : null;
+
+  // Game link for sharing
+  const gameLink =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/cayed/battleship/${gameIdStr}`
+      : '';
 
   // ═══════════════════════════════════════
   // ── RENDER ──
   // ═══════════════════════════════════════
 
+  if (!game && !error) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <p className="text-arcade-cyan font-pixel animate-pixel-blink text-[10px] tracking-widest uppercase">
+            LOADING GAME...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (error && !game) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
-          <p className="text-arcade-red font-mono text-lg">{error}</p>
+          <p className="text-arcade-red font-pixel text-[10px]">{error}</p>
           <button
             onClick={() => navigate('/battleship')}
-            className="text-arcade-cyan mt-4 font-mono text-sm hover:underline"
+            className="text-arcade-cyan font-pixel mt-6 text-[8px] uppercase hover:underline"
           >
-            ← BACK TO LOBBY
+            &lt; BACK TO LOBBY
           </button>
         </div>
       </div>
@@ -424,12 +510,9 @@ function BattleshipGameInner({
   if (phase === 'loading') {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <p className="text-arcade-muted font-mono text-sm tracking-widest uppercase">
-            LOADING GAME
-            <span className="inline-block animate-pulse">...</span>
-          </p>
-        </div>
+        <p className="text-arcade-cyan font-pixel animate-pixel-blink text-[10px] tracking-widest uppercase">
+          LOADING GAME...
+        </p>
       </div>
     );
   }
@@ -438,34 +521,43 @@ function BattleshipGameInner({
   if (phase === 'waiting') {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
-        <p className="text-arcade-muted mb-2 font-mono text-xs tracking-wider uppercase">
+        <p className="text-arcade-muted font-pixel mb-2 text-[8px] uppercase">
           GAME #{gameIdStr}
         </p>
-        <h2 className="text-arcade-text mb-8 font-mono text-xl tracking-widest uppercase">
+        <h2 className="text-arcade-yellow font-pixel animate-pixel-blink mb-8 text-sm tracking-widest uppercase">
           AWAITING OPPONENT
         </h2>
-        <div className="border-arcade-border bg-arcade-panel mb-8 border p-6">
-          <p className="text-arcade-muted font-mono text-sm">
+        <div className="border-arcade-border bg-arcade-panel mb-6 border-4 p-6">
+          <p className="text-arcade-muted font-pixel text-[8px]">
             GRID:{' '}
             <span className="text-arcade-cyan">
-              {game?.gridSize}×{game?.gridSize}
+              {game ? gridDisplay(game.gridSize) : ''}
             </span>
           </p>
-          <p className="text-arcade-muted mt-2 font-mono text-sm">
+          <p className="text-arcade-muted font-pixel mt-3 text-[8px]">
             WAGER:{' '}
             <span className="text-arcade-yellow">
-              {game ? (Number(game.wager) / 1e9).toFixed(3) : '0'} SOL
+              {game ? formatSol(game.wager) : '0'} SOL
             </span>
           </p>
         </div>
-        <p className="text-arcade-muted animate-pulse font-mono text-xs">
-          SHARE THIS GAME TO FIND AN OPPONENT
+
+        {/* Copy game link */}
+        <button
+          onClick={() => copy(gameLink)}
+          className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel mx-auto mb-6 block border-4 px-6 py-3 text-[8px] uppercase transition-none active:scale-95"
+        >
+          {copied ? '✓ LINK COPIED!' : '⎘ COPY GAME LINK'}
+        </button>
+
+        <p className="text-arcade-muted font-pixel text-[7px]">
+          SHARE LINK TO FIND AN OPPONENT
         </p>
         <button
           onClick={() => navigate('/battleship')}
-          className="text-arcade-muted hover:text-arcade-cyan mt-8 font-mono text-sm"
+          className="text-arcade-muted hover:text-arcade-cyan font-pixel mt-8 text-[8px]"
         >
-          ← BACK TO LOBBY
+          &lt; BACK TO LOBBY
         </button>
       </div>
     );
@@ -477,23 +569,20 @@ function BattleshipGameInner({
 
     return (
       <div className="mx-auto max-w-3xl px-4 py-8">
-        <h2
-          className="text-arcade-text mb-6 text-center font-mono text-xl tracking-widest uppercase"
-          style={{ textShadow: '0 0 10px rgb(224 224 224 / 0.1)' }}
-        >
+        <h2 className="text-arcade-cyan font-pixel mb-6 text-center text-xs tracking-widest uppercase">
           DEPLOY YOUR FLEET
         </h2>
 
         {/* Ship list */}
-        <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
+        <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
           {shipSizes.map((size, idx) => (
             <div
               key={idx}
-              className={`border px-3 py-1.5 font-mono text-xs uppercase ${
+              className={`font-pixel border-4 px-3 py-1.5 text-[7px] uppercase ${
                 idx < currentShipIdx
-                  ? 'border-arcade-green/40 text-arcade-green'
+                  ? 'border-arcade-green text-arcade-green'
                   : idx === currentShipIdx
-                    ? 'border-arcade-cyan text-arcade-cyan'
+                    ? 'border-arcade-cyan text-arcade-cyan animate-pixel-blink'
                     : 'border-arcade-border text-arcade-muted'
               }`}
             >
@@ -517,7 +606,7 @@ function BattleshipGameInner({
           <div className="mb-4 flex items-center justify-center gap-4">
             <button
               onClick={() => setOrientation(o => (o === 'h' ? 'v' : 'h'))}
-              className="border-arcade-border text-arcade-muted hover:border-arcade-cyan hover:text-arcade-cyan border px-3 py-1 font-mono text-xs transition-colors"
+              className="border-arcade-border text-arcade-muted hover:border-arcade-cyan hover:text-arcade-cyan font-pixel border-4 px-3 py-1 text-[7px] transition-none"
             >
               {orientation === 'h' ? '→ HORIZONTAL' : '↓ VERTICAL'} [R]
             </button>
@@ -546,7 +635,7 @@ function BattleshipGameInner({
                 setPlacedShips(placedShips.slice(0, -1));
                 setCurrentShipIdx(currentShipIdx - 1);
               }}
-              className="border-arcade-border text-arcade-muted hover:border-arcade-red hover:text-arcade-red border px-4 py-2 font-mono text-xs tracking-wider uppercase transition-colors"
+              className="border-arcade-red text-arcade-red hover:bg-arcade-red hover:text-arcade-bg font-pixel border-4 px-4 py-2 text-[7px] uppercase transition-none"
             >
               UNDO
             </button>
@@ -556,11 +645,34 @@ function BattleshipGameInner({
             <button
               onClick={handleDeployFleet}
               disabled={sending}
-              className="border-arcade-green bg-arcade-green/10 text-arcade-green hover:bg-arcade-green hover:text-arcade-bg border-2 px-8 py-3 font-mono text-sm tracking-widest uppercase transition-all duration-100 active:scale-95 disabled:opacity-40"
+              className="border-arcade-green bg-arcade-green/10 text-arcade-green hover:bg-arcade-green hover:text-arcade-bg font-pixel border-4 px-8 py-3 text-[8px] uppercase transition-none active:scale-95 disabled:opacity-40"
             >
               {sending ? 'DEPLOYING...' : 'DEPLOY FLEET'}
             </button>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── WAITING FOR OPPONENT TO PLACE SHIPS ──
+  if (phase === 'waiting-opponent-ships' && game) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-16 text-center">
+        <h2 className="text-arcade-yellow font-pixel animate-pixel-blink mb-4 text-xs uppercase">
+          FLEET DEPLOYED!
+        </h2>
+        <p className="text-arcade-muted font-pixel text-[8px]">
+          WAITING FOR OPPONENT TO DEPLOY THEIR FLEET...
+        </p>
+
+        {/* Show my board as read-only */}
+        <div className="mt-8 flex justify-center">
+          <GameGrid
+            gridSize={game.gridSize}
+            ships={myBoard?.shipCoordinates ?? []}
+            label="YOUR WATERS"
+          />
         </div>
       </div>
     );
@@ -575,29 +687,28 @@ function BattleshipGameInner({
         {/* Turn indicator */}
         <div className="mb-6 text-center">
           {!opponentReady ? (
-            <p className="text-arcade-yellow animate-pulse font-mono text-sm tracking-widest uppercase">
+            <p className="text-arcade-yellow font-pixel animate-pixel-blink text-[9px] uppercase">
               WAITING FOR OPPONENT TO DEPLOY FLEET...
             </p>
           ) : isMyTurn ? (
-            <p
-              className="text-arcade-cyan font-mono text-lg tracking-widest uppercase"
-              style={{ textShadow: '0 0 15px rgb(0 255 204 / 0.4)' }}
-            >
+            <p className="text-arcade-cyan font-pixel animate-pixel-bounce text-xs uppercase">
               YOUR TURN — FIRE!
             </p>
           ) : (
-            <p className="text-arcade-muted animate-pulse font-mono text-sm tracking-widest uppercase">
+            <p className="text-arcade-muted font-pixel animate-pixel-blink text-[9px] uppercase">
               OPPONENT IS AIMING...
             </p>
           )}
           {sending && (
-            <p className="text-arcade-yellow mt-2 font-mono text-xs">FIRING...</p>
+            <p className="text-arcade-yellow font-pixel animate-pixel-blink mt-2 text-[7px]">
+              FIRING...
+            </p>
           )}
         </div>
 
         {error && (
-          <div className="border-arcade-red/40 bg-arcade-red/10 mb-4 border p-3 text-center">
-            <p className="text-arcade-red font-mono text-xs">{error}</p>
+          <div className="border-arcade-red bg-arcade-red/10 mb-4 border-4 p-3 text-center">
+            <p className="text-arcade-red font-pixel text-[7px]">{error}</p>
           </div>
         )}
 
@@ -608,11 +719,14 @@ function BattleshipGameInner({
             gridSize={game.gridSize}
             ships={myBoard?.shipCoordinates ?? []}
             hits={myBoardHits}
+            misses={myBoardMisses}
             label="YOUR WATERS"
           />
 
           {/* Divider */}
-          <div className="bg-arcade-border hidden h-px w-24 self-center lg:block lg:h-auto lg:w-px lg:self-stretch" />
+          <div className="text-arcade-muted font-pixel hidden text-lg lg:flex lg:items-center lg:self-center">
+            VS
+          </div>
 
           {/* Attack board */}
           <GameGrid
@@ -627,107 +741,151 @@ function BattleshipGameInner({
 
         {/* Stats */}
         <div className="mt-8 flex justify-center gap-8">
-          <div className="text-center">
-            <p className="text-arcade-muted font-mono text-xs">HITS DEALT</p>
-            <p className="text-arcade-red font-mono text-lg">{attackHits.length}</p>
+          <div className="border-arcade-border border-4 px-4 py-2 text-center">
+            <p className="text-arcade-muted font-pixel text-[6px]">HITS DEALT</p>
+            <p className="text-arcade-red font-pixel text-sm">{attackHits.length}</p>
           </div>
-          <div className="text-center">
-            <p className="text-arcade-muted font-mono text-xs">HITS TAKEN</p>
-            <p className="text-arcade-yellow font-mono text-lg">{myBoardHits.length}</p>
+          <div className="border-arcade-border border-4 px-4 py-2 text-center">
+            <p className="text-arcade-muted font-pixel text-[6px]">HITS TAKEN</p>
+            <p className="text-arcade-yellow font-pixel text-sm">{myBoardHits.length}</p>
+          </div>
+          <div className="border-arcade-border border-4 px-4 py-2 text-center">
+            <p className="text-arcade-muted font-pixel text-[6px]">MOVES</p>
+            <p className="text-arcade-cyan font-pixel text-sm">{totalMoves}</p>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── FINISHED ──
+  // ── FINISHED (Completed, needs revealWinner call) ──
   if (phase === 'finished' && game) {
     const iWon = winner === myAddress;
-    const isDraw = !winner;
 
     return (
       <div className="mx-auto max-w-5xl px-4 py-8">
-        {/* Winner announcement */}
         <div className="mb-8 text-center">
-          {isDraw ? (
-            <h2 className="text-arcade-yellow font-mono text-2xl tracking-widest uppercase">
-              GAME OVER
-            </h2>
-          ) : iWon ? (
+          {iWon ? (
             <>
-              <h2
-                className="text-arcade-green font-mono text-3xl tracking-widest uppercase"
-                style={{ textShadow: '0 0 20px rgb(0 204 102 / 0.4)' }}
-              >
-                VICTORY
+              <h2 className="text-arcade-green font-pixel animate-pixel-bounce text-lg uppercase">
+                VICTORY!
               </h2>
-              <p className="text-arcade-green/80 mt-2 font-mono text-sm">
+              <p className="text-arcade-green/80 font-pixel mt-2 text-[7px]">
                 ALL ENEMY SHIPS DESTROYED
               </p>
             </>
           ) : isPlayer ? (
             <>
-              <h2
-                className="text-arcade-red font-mono text-3xl tracking-widest uppercase"
-                style={{ textShadow: '0 0 20px rgb(255 51 51 / 0.4)' }}
-              >
+              <h2 className="text-arcade-red font-pixel animate-pixel-shake text-lg uppercase">
                 DEFEAT
               </h2>
-              <p className="text-arcade-red/80 mt-2 font-mono text-sm">
+              <p className="text-arcade-red/80 font-pixel mt-2 text-[7px]">
                 YOUR FLEET HAS BEEN SUNK
               </p>
             </>
           ) : (
-            <h2 className="text-arcade-text font-mono text-2xl tracking-widest uppercase">
-              GAME OVER
-            </h2>
+            <h2 className="text-arcade-yellow font-pixel text-sm uppercase">GAME OVER</h2>
           )}
 
           {winner && (
-            <p className="text-arcade-muted mt-4 font-mono text-xs">
-              WINNER: {winner.slice(0, 8)}...{winner.slice(-8)}
+            <p className="text-arcade-muted font-pixel mt-4 text-[7px]">
+              WINNER: {truncateAddress(winner)}
             </p>
           )}
         </div>
 
-        {/* Revealed boards */}
+        {/* Reveal Winner button — commits boards back to base layer */}
+        {isPlayer && (
+          <div className="mb-8 text-center">
+            <button
+              onClick={handleRevealWinner}
+              disabled={revealing}
+              className="border-arcade-yellow bg-arcade-yellow/10 text-arcade-yellow hover:bg-arcade-yellow hover:text-arcade-bg font-pixel border-4 px-8 py-3 text-[8px] uppercase transition-none active:scale-95 disabled:opacity-40"
+            >
+              {revealing ? 'REVEALING...' : '⚑ REVEAL & CLAIM REWARD'}
+            </button>
+            <p className="text-arcade-muted font-pixel mt-2 text-[6px]">
+              COMMITS BOARDS TO CHAIN & CLAIMS WAGER
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="border-arcade-red bg-arcade-red/10 mb-4 border-4 p-3 text-center">
+            <p className="text-arcade-red font-pixel text-[7px]">{error}</p>
+          </div>
+        )}
+
+        {/* Wager info */}
+        {game.wager > 0n && (
+          <div className="mb-6 text-center">
+            <p className="text-arcade-muted font-pixel text-[7px]">
+              WAGER:{' '}
+              <span className="text-arcade-yellow">{formatSol(game.wager)} SOL</span>
+            </p>
+          </div>
+        )}
+
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => navigate('/battleship')}
+            className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel border-4 px-8 py-3 text-[8px] uppercase transition-none active:scale-95"
+          >
+            BACK TO LOBBY
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── REVEALED (winner claimed, boards undelegated) ──
+  if (phase === 'revealed' && game) {
+    const iWon = winner === myAddress;
+
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="mb-8 text-center">
+          {iWon ? (
+            <h2 className="text-arcade-green font-pixel animate-pixel-bounce text-lg uppercase">
+              VICTORY!
+            </h2>
+          ) : isPlayer ? (
+            <h2 className="text-arcade-red font-pixel text-lg uppercase">DEFEAT</h2>
+          ) : (
+            <h2 className="text-arcade-yellow font-pixel text-sm uppercase">GAME OVER</h2>
+          )}
+
+          {winner && (
+            <p className="text-arcade-muted font-pixel mt-4 text-[7px]">
+              WINNER: {truncateAddress(winner)}
+            </p>
+          )}
+        </div>
+
+        {/* Revealed boards — revealedShipsPlayer1 = ships P1 sunk (P2's ships),
+            revealedShipsPlayer2 = ships P2 sunk (P1's ships) */}
         <div className="flex flex-col items-center justify-center gap-8 lg:flex-row lg:items-start lg:gap-12">
-          {/* Player 1 board */}
+          {/* Player 1 board — their ships are revealed in revealedShipsPlayer2 */}
           <div>
             <GameGrid
               gridSize={game.gridSize}
-              ships={game.revealedShipsPlayer1}
-              hits={
-                opponentBoard && isPlayer1
-                  ? myBoardHits
-                  : myBoard
-                    ? myBoard.hitsReceived.map(h => ({ x: h.x, y: h.y }))
-                    : []
-              }
-              revealedShips={game.revealedShipsPlayer1}
-              label={`PLAYER 1 ${isPlayer1 ? '(YOU)' : ''}`}
+              revealedShips={game.revealedShipsPlayer2}
+              hits={myBoardHits}
+              label={`P1 ${isPlayer1 ? '(YOU)' : truncateAddress(game.player1)}`}
             />
           </div>
 
-          <div className="bg-arcade-border hidden h-px w-24 self-center lg:block lg:h-auto lg:w-px lg:self-stretch" />
+          <div className="text-arcade-muted font-pixel hidden text-lg lg:flex lg:items-center lg:self-center">
+            VS
+          </div>
 
-          {/* Player 2 board */}
+          {/* Player 2 board — their ships are revealed in revealedShipsPlayer1 */}
           <div>
             <GameGrid
               gridSize={game.gridSize}
-              ships={game.revealedShipsPlayer2}
-              hits={
-                opponentBoard && isPlayer2
-                  ? myBoardHits
-                  : opponentBoard
-                    ? opponentBoard.hitsReceived.map(h => ({
-                        x: h.x,
-                        y: h.y,
-                      }))
-                    : []
-              }
-              revealedShips={game.revealedShipsPlayer2}
-              label={`PLAYER 2 ${isPlayer2 ? '(YOU)' : ''}`}
+              revealedShips={game.revealedShipsPlayer1}
+              hits={attackHits}
+              label={`P2 ${isPlayer2 ? '(YOU)' : isSome(game.player2) ? truncateAddress(game.player2.value) : ''}`}
             />
           </div>
         </div>
@@ -735,20 +893,17 @@ function BattleshipGameInner({
         {/* Wager info */}
         {game.wager > 0n && (
           <div className="mt-8 text-center">
-            <p className="text-arcade-muted font-mono text-xs">
+            <p className="text-arcade-muted font-pixel text-[7px]">
               WAGER:{' '}
-              <span className="text-arcade-yellow">
-                {(Number(game.wager) / 1e9).toFixed(3)} SOL
-              </span>
+              <span className="text-arcade-yellow">{formatSol(game.wager)} SOL</span>
             </p>
           </div>
         )}
 
-        {/* Back button */}
         <div className="mt-8 text-center">
           <button
             onClick={() => navigate('/battleship')}
-            className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg border-2 px-8 py-3 font-mono text-sm tracking-widest uppercase transition-all duration-100 active:scale-95"
+            className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel border-4 px-8 py-3 text-[8px] uppercase transition-none active:scale-95"
           >
             BACK TO LOBBY
           </button>
@@ -760,8 +915,8 @@ function BattleshipGameInner({
   // Fallback
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <p className="text-arcade-muted font-mono text-sm">
-        LOADING<span className="animate-pulse">...</span>
+      <p className="text-arcade-cyan font-pixel animate-pixel-blink text-[10px]">
+        LOADING...
       </p>
     </div>
   );
