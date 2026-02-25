@@ -40,7 +40,8 @@ pub enum GameStatus {
     AwaitingPlayerTwo,
     HidingShips,
     InProgress,
-    Completed { winner: Pubkey },
     Cancelled,
+    Completed { winner: Pubkey },
     Forfeited { winner: Pubkey },
+    WinnerRevealed { winner: Pubkey },
 }

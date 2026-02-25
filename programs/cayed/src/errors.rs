@@ -52,6 +52,8 @@ pub enum CayedError {
     CellAlreadyAttacked,
     #[msg("Ships have not been placed yet")]
     ShipsNotPlaced,
+    #[msg("You are trying to make a move when all your ships are sunken")]
+    AllShipsSunk,
     #[msg("Game is not in the correct state for this action")]
     InvalidGameStatus,
 

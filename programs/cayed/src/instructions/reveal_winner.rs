@@ -64,8 +64,7 @@ impl<'info> RevealWinner<'info> {
             self.game.player_2.unwrap()
         };
 
-        self.game.status = GameStatus::Completed { winner };
-        msg!("Winner: {}", winner);
+        self.game.status = GameStatus::WinnerRevealed { winner };
 
         // Clear permissions so boards are no longer restricted
         let game_id_bytes = self.game.id.to_le_bytes();

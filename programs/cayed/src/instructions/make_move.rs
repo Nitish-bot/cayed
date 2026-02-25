@@ -47,6 +47,10 @@ impl<'info> MakeMove<'info> {
                 && !self.opponent_board.ship_coordinates.is_empty(),
             CayedError::ShipsNotPlaced
         );
+        require!(
+            !self.player_board.all_ships_sunk(),
+            CayedError::AllShipsSunk
+        );
 
         // Transition from HidingShips → InProgress on first valid move
         if matches!(self.game.status, GameStatus::HidingShips) {
