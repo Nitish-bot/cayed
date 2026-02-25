@@ -32,6 +32,7 @@ pub struct MoveResult {
     pub x: u8,
     pub y: u8,
     pub is_hit: bool,
+    // pub made_by_player1: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, PartialEq)]

@@ -173,10 +173,9 @@ export class GameService {
   async joinGame(opts: {
     player: TransactionSigner;
     gameId: bigint;
-    gamePda: Address;
-    vaultPda: Address;
   }): Promise<{ playerBoardPda: Address }> {
-    const { player, gameId, gamePda, vaultPda } = opts;
+    const { player, gameId } = opts;
+    const { gamePda, vaultPda } = await deriveGamePdas(gameId, player.address);
     const playerBoardPda = await derivePlayerBoardPda(gameId, player.address);
 
     // 1. Join game

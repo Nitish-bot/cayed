@@ -1,22 +1,16 @@
 import { useCallback, useContext, useState } from 'react';
 
-import {
-  getCreateGameInstruction,
-  getJoinGameInstruction,
-  type Game,
-} from '@client/cayed';
+import { type Game } from '@client/cayed';
 import { type MaybeAccount } from '@solana/kit';
 import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate } from 'react-router';
-import { getPDAAndBump } from 'solana-kite';
 
 import { ChainContext } from '@/context/chain-context';
-import { ConnectionContext } from '@/context/connection-context';
+import { useGameService } from '@/context/game-service-provider';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
 import { useGames } from '@/hooks/use-games';
-import { CAYED_PROGRAM_ADDRESS, LAMPORTS_PER_SOL } from '@/lib/constants';
-import { sendTransactionWithWallet } from '@/lib/send-transaction';
+import { LAMPORTS_PER_SOL } from '@/lib/constants';
 
 /* ═══════════════════════════════════════
    Guard: split connected / disconnected
@@ -61,7 +55,6 @@ function LobbyDisconnected() {
 
 function LobbyConnected({ account }: { account: UiWalletAccount }) {
   const navigate = useNavigate();
-  const { connection } = useContext(ConnectionContext);
   const { chain } = useContext(ChainContext);
   const signer = useWalletAccountTransactionSigner(account, chain);
   const { games, loading, refetch } = useGames();
@@ -71,6 +64,8 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
   const [joining, setJoining] = useState<string | null>(null);
   const [gridSize, setGridSize] = useState(6);
   const [wager, setWager] = useState('0.001');
+
+  const gameService = useGameService();
 
   const openGames = games.filter(
     (g): g is MaybeAccount<Game> & { exists: true } =>
@@ -83,33 +78,11 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
       const gameId = BigInt(Date.now());
       const wagerLamports = BigInt(Math.floor(parseFloat(wager) * LAMPORTS_PER_SOL));
 
-      const { pda: configPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, ['config']);
-      const { pda: vaultPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, ['vault']);
-      const { pda: gamePda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-        'game',
-        gameId,
-      ]);
-      const { pda: playerBoardPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-        'player',
-        gameId,
-        account.address,
-      ]);
-
-      const ix = getCreateGameInstruction({
+      gameService.createGame({
         player: signer,
-        game: gamePda,
-        playerBoard: playerBoardPda,
-        config: configPda,
-        vault: vaultPda,
-        id: gameId,
+        gameId,
         gridSize,
         wager: wagerLamports,
-      });
-
-      await sendTransactionWithWallet({
-        connection,
-        feePayer: signer,
-        instructions: [ix],
       });
 
       navigate(`/battleship/${gameId.toString()}`);
@@ -119,35 +92,16 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
     } finally {
       setCreating(false);
     }
-  }, [signer, account.address, gridSize, wager, connection, navigate]);
+  }, [signer, gridSize, wager, gameService, navigate]);
 
   const handleJoinGame = useCallback(
     async (game: Game) => {
       const gameIdStr = game.id.toString();
       setJoining(gameIdStr);
       try {
-        const { pda: gamePda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-          'game',
-          game.id,
-        ]);
-        const { pda: vaultPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, ['vault']);
-        const { pda: playerBoardPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-          'player',
-          game.id,
-          account.address,
-        ]);
-
-        const ix = getJoinGameInstruction({
+        gameService.joinGame({
           player: signer,
-          game: gamePda,
-          playerBoard: playerBoardPda,
-          vault: vaultPda,
-        });
-
-        await sendTransactionWithWallet({
-          connection,
-          feePayer: signer,
-          instructions: [ix],
+          gameId: game.id,
         });
 
         navigate(`/battleship/${gameIdStr}`);
@@ -158,7 +112,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
         setJoining(null);
       }
     },
-    [signer, account.address, connection, navigate]
+    [signer, gameService, navigate]
   );
 
   return (
@@ -252,7 +206,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
 
 function LobbyHeader({ onBack }: { onBack: () => void }) {
   return (
-    <div>
+    <div className="pb-4">
       <button
         onClick={onBack}
         className="text-arcade-muted hover:text-arcade-cyan mb-2 font-mono text-xs tracking-wider uppercase transition-colors"

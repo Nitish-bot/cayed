@@ -9,17 +9,16 @@ import {
   type PlayerBoard,
   type ShipCoordinatesArgs,
 } from '@client/cayed';
-import { isSome, type Address, type KeyPairSigner } from '@solana/kit';
+import { address, isSome, type Address, type KeyPairSigner } from '@solana/kit';
 import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate, useParams } from 'react-router';
-import { getPDAAndBump } from 'solana-kite';
 
 import { GameGrid } from '@/components/battleship/game-grid';
 import { ChainContext } from '@/context/chain-context';
-import { ConnectionContext } from '@/context/connection-context';
+import { useGameService } from '@/context/game-service-provider';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
-import { CAYED_PROGRAM_ADDRESS, getShipSizes } from '@/lib/constants';
+import { getShipSizes } from '@/lib/constants';
 import { sendTransactionWithWallet } from '@/lib/send-transaction';
 import {
   buildShip,
@@ -28,6 +27,7 @@ import {
   validateShipPlacement,
   type CellCoord,
 } from '@/lib/ships';
+import { deriveGamePda, derivePlayerBoardPda } from '@/services/pda';
 
 type GamePhase = 'loading' | 'waiting' | 'placement' | 'battle' | 'finished';
 
@@ -60,7 +60,6 @@ function BattleshipGameInner({
   gameIdStr: string;
 }) {
   const navigate = useNavigate();
-  const { connection } = useContext(ConnectionContext);
   const { chain } = useContext(ChainContext);
   const signer = useWalletAccountTransactionSigner(account, chain);
 
@@ -83,8 +82,10 @@ function BattleshipGameInner({
   // Attack tracking (local)
   const [myAttacks, setMyAttacks] = useState<Map<string, 'hit' | 'miss'>>(new Map());
 
+  const gameService = useGameService();
+
   // ── Derived ──
-  const myAddress = account.address;
+  const myAddress = address(account.address);
   const isPlayer1 = game?.player1 === myAddress;
   const isPlayer2 = game && isSome(game.player2) && game.player2.value === myAddress;
   const isPlayer = isPlayer1 || isPlayer2;
@@ -106,22 +107,16 @@ function BattleshipGameInner({
   }>({ gamePda: null, myBoardPda: null, opponentBoardPda: null });
 
   useEffect(() => {
+    if (!myAddress) return;
     let cancelled = false;
     async function derive() {
-      const { pda: gamePda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-        'game',
-        gameId,
-      ]);
+      const gamePda = await deriveGamePda(gameId);
+      if (cancelled) return;
       pdaRef.current.gamePda = gamePda;
 
-      if (myAddress) {
-        const { pda: myBoardPda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-          'player',
-          gameId,
-          myAddress,
-        ]);
-        if (!cancelled) pdaRef.current.myBoardPda = myBoardPda;
-      }
+      const myBoardPda = await derivePlayerBoardPda(gameId, myAddress);
+      if (cancelled) return;
+      pdaRef.current.myBoardPda = myBoardPda;
     }
     void derive();
     return () => {
@@ -134,12 +129,9 @@ function BattleshipGameInner({
     if (!opponentAddress) return;
     let cancelled = false;
     async function derive() {
-      const { pda } = await getPDAAndBump(CAYED_PROGRAM_ADDRESS, [
-        'player',
-        gameId,
-        opponentAddress!,
-      ]);
-      if (!cancelled) pdaRef.current.opponentBoardPda = pda;
+      const opponentBoardPda = await derivePlayerBoardPda(gameId, opponentAddress!)
+      if (cancelled) return;
+      pdaRef.current.opponentBoardPda = opponentBoardPda;
     }
     void derive();
     return () => {
@@ -151,18 +143,33 @@ function BattleshipGameInner({
   const fetchState = useCallback(async () => {
     try {
       if (!pdaRef.current.gamePda) return;
-      const maybeGame = await fetchMaybeGame(connection.rpc, pdaRef.current.gamePda);
-      if (!maybeGame.exists) {
-        setError('Game not found');
-        return;
+
+      let ephemeral = false;
+      let maybeGame;
+      try {
+        maybeGame = await fetchMaybeGame(gameService.devnet.rpc, pdaRef.current.gamePda);
+        if (!maybeGame.exists) throw new Error('Game does not exist on base layer ie game should be joined by p2')
+      } catch (e1) {
+        try {
+          maybeGame = await fetchMaybeGame(gameService.ephemeral.rpc, pdaRef.current.gamePda);
+          // eslint-disable-next-line
+          if (!maybeGame.exists) throw new Error('Game does not exist on ephemeral layer either?? try sleeping for change to surface')
+          ephemeral = true;
+        } catch(e2) {
+          console.error('could not find the game account on base or ephemeral')
+          console.error(e1)
+          console.error(e2)
+          setError('GameAccount not found')
+          return;
+        }
       }
       setGame(maybeGame.data);
-
+      const rpc = ephemeral ? gameService.ephemeral.rpc : gameService.devnet.rpc
       // Fetch my board
       if (pdaRef.current.myBoardPda) {
         try {
           const maybeBoard = await fetchMaybePlayerBoard(
-            connection.rpc,
+            rpc,
             pdaRef.current.myBoardPda
           );
           if (maybeBoard.exists) setMyBoard(maybeBoard.data);
@@ -175,7 +182,7 @@ function BattleshipGameInner({
       if (pdaRef.current.opponentBoardPda) {
         try {
           const maybeBoard = await fetchMaybePlayerBoard(
-            connection.rpc,
+            rpc,
             pdaRef.current.opponentBoardPda
           );
           if (maybeBoard.exists) setOpponentBoard(maybeBoard.data);
@@ -186,7 +193,7 @@ function BattleshipGameInner({
     } catch (err) {
       console.error('Fetch state error:', err);
     }
-  }, [connection]);
+  }, [gameService]);
 
   // ── Poll state ──
   useEffect(() => {
@@ -233,24 +240,33 @@ function BattleshipGameInner({
 
   // ── Sync attack map from opponent board ──
   useEffect(() => {
-    if (!opponentBoard) return;
+    if (!game) return;
     setMyAttacks(prev => {
       const newAttacks = new Map(prev);
-      for (const hit of opponentBoard.hitsReceived) {
-        const key = cellKey(hit.x, hit.y);
-        newAttacks.set(key, 'hit');
+      const prevAttacksLen = prev.keys.length
+
+      /// !! I could be wrong with the lookup calc here
+      const isPlayer1Turn = game.nextMovePlayer1;
+      const startIndex = isPlayer1 ? ( isPlayer1Turn ? 0 : 1 ) : ( isPlayer1Turn ? 1 : 0 );
+      const lookupIndex = startIndex + 2 * prevAttacksLen;
+      for (let i = lookupIndex; i < game.moves.length; i += 2) {
+        const move = game.moves[i];
+        const key = cellKey(move.x, move.y)
+        const value = move.isHit === true ? 'hit' : 'miss';
+        newAttacks.set(key, value)
       }
+
       return newAttacks;
     });
-  }, [opponentBoard]);
+  }, [game, isPlayer1]);
 
   // ── Ship placement preview ──
   const previewShip = useMemo(() => {
-    if (phase !== 'placement' || !hoveredCell || currentShipIdx >= shipSizes.length)
+    if (phase !== 'placement' || !hoveredCell || currentShipIdx >= shipSizes.length || !game)
       return null;
     const size = shipSizes[currentShipIdx];
     const ship = buildShip(hoveredCell.x, hoveredCell.y, size, orientation);
-    const valid = validateShipPlacement(ship, game?.gridSize ?? 0, placedShips);
+    const valid = validateShipPlacement(ship, game.gridSize, placedShips);
     return { cells: getShipCells(ship), valid, ship };
   }, [phase, hoveredCell, currentShipIdx, shipSizes, orientation, placedShips, game]);
 
@@ -272,18 +288,12 @@ function BattleshipGameInner({
     if (!signer || !pdaRef.current.gamePda || !pdaRef.current.myBoardPda) return;
     setSending(true);
     try {
-      const ix = getHideShipsInstruction({
-        player: signer as unknown as KeyPairSigner,
-        game: pdaRef.current.gamePda,
-        playerBoard: pdaRef.current.myBoardPda,
+      await gameService.hideShips({
+        player: signer,
+        gamePda: pdaRef.current.gamePda,
+        playerBoardPda: pdaRef.current.myBoardPda,
         ships: placedShips,
-      });
-
-      await sendTransactionWithWallet({
-        connection,
-        feePayer: signer,
-        instructions: [ix],
-      });
+      })
 
       // Refresh state
       await fetchState();
@@ -293,7 +303,7 @@ function BattleshipGameInner({
     } finally {
       setSending(false);
     }
-  }, [signer, placedShips, connection, fetchState]);
+  }, [signer, placedShips, gameService, fetchState]);
 
   // ── Handle attack click ──
   const handleAttack = useCallback(
@@ -310,26 +320,22 @@ function BattleshipGameInner({
         return;
 
       const key = cellKey(coord.x, coord.y);
-      if (myAttacks.has(key)) return; // Already attacked
+      /// !! I should probably do something when trying to attack
+      /// !! an already attacked square
+      if (myAttacks.has(key)) return;
 
       setSending(true);
       try {
-        const ix = getMakeMoveInstruction({
-          player: signer as unknown as KeyPairSigner,
-          opponent: opponentAddress,
-          game: pdaRef.current.gamePda,
-          playerBoard: pdaRef.current.myBoardPda,
-          opponentBoard: pdaRef.current.opponentBoardPda,
+        await gameService.makeMove({
+          player: signer,
+          opponent: opponentAddress!,
+          gamePda: pdaRef.current.gamePda,
+          playerBoardPda: pdaRef.current.myBoardPda,
+          opponentBoardPda: pdaRef.current.opponentBoardPda,
           x: coord.x,
           y: coord.y,
-        });
-
-        await sendTransactionWithWallet({
-          connection,
-          feePayer: signer,
-          instructions: [ix],
-        });
-
+        })
+        
         // Refresh to get hit/miss result
         await fetchState();
 
