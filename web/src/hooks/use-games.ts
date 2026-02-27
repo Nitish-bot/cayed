@@ -14,13 +14,17 @@ export function useGames() {
 
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
+  const hasFetchedOnce = useRef(false);
 
   const fetchGames = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show the loading spinner on the very first fetch.
+      // Subsequent polls keep the stale list visible to avoid layout jitter.
+      if (!hasFetchedOnce.current) setLoading(true);
       const decoded = await fetchAllGameAccounts(connectionRef.current);
       setGames(decoded);
       setError(null);
+      hasFetchedOnce.current = true;
     } catch (err) {
       setError(err as Error);
       console.error('Error fetching games:', err);

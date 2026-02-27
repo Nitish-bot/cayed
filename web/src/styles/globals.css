@@ -36,6 +36,13 @@ body {
   image-rendering: pixelated;
 }
 
+/* Ensure interactive elements show pointer cursor */
+button:not(:disabled),
+a,
+[role='button']:not(:disabled) {
+  cursor: pointer;
+}
+
 /* Scanline overlay */
 body::after {
   content: '';

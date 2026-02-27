@@ -7,7 +7,8 @@ import {
   type ShipCoordinatesArgs,
 } from '@client/cayed';
 import { address, isSome, type Address } from '@solana/kit';
-import { useWalletAccountTransactionSigner } from '@solana/react';
+import { useSignMessage, useWalletAccountTransactionSigner } from '@solana/react';
+import { type SolanaSignMessageInput } from '@solana/wallet-standard-features';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate, useParams } from 'react-router';
 
@@ -89,6 +90,7 @@ function BattleshipGameInner({
 
   const gameService = useGameService();
   const { copied, copy } = useClipboard();
+  const signMessage = useSignMessage(account);
 
   // ── Derived ──
   const myAddress = address(account.address);
@@ -214,6 +216,18 @@ function BattleshipGameInner({
       console.error('Fetch state error:', err);
     }
   }, [gameService]);
+
+  // ── Register sign-message function with GameService (once) ──
+  useEffect(() => {
+    gameService.setSignMessageFn(
+      myAddress,
+      async (message: Uint8Array): Promise<Uint8Array> => {
+        const input = { account, message } as SolanaSignMessageInput;
+        const output = await signMessage(input);
+        return output.signature;
+      }
+    );
+  }, [gameService, myAddress, account, signMessage]);
 
   // ── Poll state ──
   useEffect(() => {
@@ -613,8 +627,9 @@ function BattleshipGameInner({
           </div>
         )}
 
-        {/* Grid */}
-        <div className="flex justify-center">
+        {/* Grids — show both for consistent layout with battle phase */}
+        <div className="flex flex-col items-center justify-center gap-8 lg:flex-row lg:items-start lg:gap-12">
+          {/* My board (interactive placement) */}
           <GameGrid
             gridSize={game.gridSize}
             ships={placedShips}
@@ -624,6 +639,17 @@ function BattleshipGameInner({
             onCellClick={handlePlacementClick}
             onCellHover={setHoveredCell}
             label="YOUR WATERS"
+          />
+
+          {/* Divider */}
+          <div className="text-arcade-muted font-pixel hidden text-lg lg:flex lg:items-center lg:self-center">
+            VS
+          </div>
+
+          {/* Opponent board (empty, non-interactive) */}
+          <GameGrid
+            gridSize={game.gridSize}
+            label="ENEMY WATERS"
           />
         </div>
 
@@ -666,12 +692,21 @@ function BattleshipGameInner({
           WAITING FOR OPPONENT TO DEPLOY THEIR FLEET...
         </p>
 
-        {/* Show my board as read-only */}
-        <div className="mt-8 flex justify-center">
+        {/* Show both grids for consistent layout */}
+        <div className="mt-8 flex flex-col items-center justify-center gap-8 lg:flex-row lg:items-start lg:gap-12">
           <GameGrid
             gridSize={game.gridSize}
             ships={myBoard?.shipCoordinates ?? []}
             label="YOUR WATERS"
+          />
+
+          <div className="text-arcade-muted font-pixel hidden text-lg lg:flex lg:items-center lg:self-center">
+            VS
+          </div>
+
+          <GameGrid
+            gridSize={game.gridSize}
+            label="ENEMY WATERS"
           />
         </div>
       </div>

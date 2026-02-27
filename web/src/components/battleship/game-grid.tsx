@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 
 import { type ShipCoordinatesArgs } from '@client/cayed';
 
@@ -123,10 +123,9 @@ export function GameGrid({
 
         {/* Rows – only gridSize/2 rows */}
         {Array.from({ length: rows }, (_, y) => (
-          <>
+          <Fragment key={`row-${y}`}>
             {/* Row header */}
             <div
-              key={`rh-${y}`}
               className="text-arcade-muted font-pixel flex w-6 items-center justify-center text-[7px]"
             >
               {y + 1}
@@ -160,7 +159,7 @@ export function GameGrid({
                 </button>
               );
             })}
-          </>
+          </Fragment>
         ))}
       </div>
     </div>

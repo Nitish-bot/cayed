@@ -77,6 +77,18 @@ export class GameService {
   private ephemeralAuthed: Connection | null = null;
   private readonly config: GameServiceConfig;
 
+  // ── Auth state ──
+  private _authExpiresAt = 0;
+  private _authPromise: Promise<void> | null = null;
+  private _playerAddress: Address | null = null;
+  private _signMessageFn:
+    | ((message: Uint8Array) => Promise<Uint8Array>)
+    | null = null;
+
+  get isAuthenticated(): boolean {
+    return this.ephemeralAuthed !== null && Date.now() < this._authExpiresAt;
+  }
+
   constructor(config: GameServiceConfig = DEFAULT_GAME_SERVICE_CONFIG) {
     this.config = config;
     this.devnet = connect(config.devnetUrl, config.devnetWsUrl);
@@ -91,12 +103,21 @@ export class GameService {
   // ─── Auth ────────────────────────────────────────────────────────
 
   /**
+   * Register the signing function and player address.
+   * Call once after wallet connect. This does NOT trigger auth immediately —
+   * auth happens lazily before the first ephemeral transaction.
+   */
+  setSignMessageFn(
+    playerAddress: Address,
+    signMessage: (message: Uint8Array) => Promise<Uint8Array>
+  ): void {
+    this._playerAddress = playerAddress;
+    this._signMessageFn = signMessage;
+  }
+
+  /**
    * Authenticate with the ephemeral validator (required for TEE endpoints).
-   * Call once after wallet connect; the authed connection is re-used for the
-   * lifetime of this service instance.
-   *
-   * @param playerAddress  The wallet address.
-   * @param signMessage    Signing function (e.g. from wallet adapter signMessage).
+   * Stores the token and expiresAt. Safe to call multiple times — deduplicates.
    */
   async authenticate(
     playerAddress: Address,
@@ -105,15 +126,44 @@ export class GameService {
     const isTee = this.config.ephemeralUrl.includes('tee');
     if (!isTee) return; // non-TEE endpoints don't need auth tokens
 
-    const { token } = await getAuthToken(
+    const { token, expiresAt } = await getAuthToken(
       this.config.ephemeralUrl,
       playerAddress,
       signMessage
     );
+    console.log(expiresAt)
+    this._authExpiresAt = expiresAt;
     this.ephemeralAuthed = connect(
       `${this.config.ephemeralUrl}?token=${token}`,
       this.config.ephemeralWsUrl
     );
+  }
+
+  /**
+   * Ensure we have a valid auth token before sending to ephemeral.
+   * Re-authenticates if the token is expired or missing.
+   * Deduplicates concurrent calls so only one auth prompt fires.
+   */
+  async ensureAuthenticated(): Promise<void> {
+    const isTee = this.config.ephemeralUrl.includes('tee');
+    if (!isTee) return;
+
+    if (this.isAuthenticated) return;
+
+    if (!this._playerAddress || !this._signMessageFn) {
+      throw new Error('Wallet not connected — call setSignMessageFn first');
+    }
+
+    // Deduplicate concurrent auth calls
+    if (!this._authPromise) {
+      this._authPromise = this.authenticate(
+        this._playerAddress,
+        this._signMessageFn
+      ).finally(() => {
+        this._authPromise = null;
+      });
+    }
+    await this._authPromise;
   }
 
   // ─── High-level game operations ──────────────────────────────────
@@ -186,7 +236,7 @@ export class GameService {
       vault: vaultPda,
     });
 
-    await this.sendOnDevnet(player, [joinGameIx]);
+    // await this.sendOnDevnet(player, [joinGameIx]);
 
     // 2. Delegate the Game PDA
     const gameDelegateIxs = await this.buildGameDelegationIx(player, gamePda, gameId);
@@ -199,7 +249,7 @@ export class GameService {
     );
 
     // Send all 4 delegation instructions together (same pattern as createGame)
-    await this.sendOnDevnet(player, [...gameDelegateIxs, ...boardDelegateIxs]);
+    await this.sendOnDevnet(player, [joinGameIx, ...gameDelegateIxs, ...boardDelegateIxs]);
 
     return { playerBoardPda };
   }
@@ -407,6 +457,7 @@ export class GameService {
     feePayer: TransactionSigner,
     instructions: Instruction[]
   ): Promise<void> {
+    await this.ensureAuthenticated();
     await sendTransactionWithWallet({
       connection: this.ephemeral,
       feePayer,

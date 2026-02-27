@@ -133,8 +133,15 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
 
       navigate(`/battleship/${gameId.toString()}`);
     } catch (err) {
+      const msg = (err as Error).message ?? String(err);
       console.error('Create game error:', err);
-      setError(`Failed to create game: ${(err as Error).message}`);
+      if (/reject|denied|cancelled/i.test(msg)) {
+        setError(
+          'Wallet rejected the request. Brave browser may auto-reject devnet transactions — try Phantom, Backpack, or Solflare instead.'
+        );
+      } else {
+        setError(`Failed to create game: ${msg}`);
+      }
     } finally {
       setCreating(false);
     }
@@ -153,8 +160,15 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
 
         navigate(`/battleship/${gameIdStr}`);
       } catch (err) {
+        const msg = (err as Error).message ?? String(err);
         console.error('Join game error:', err);
-        setError(`Failed to join game: ${(err as Error).message}`);
+        if (/reject|denied|cancelled/i.test(msg)) {
+          setError(
+            'Wallet rejected the request. Brave Wallet may auto-reject devnet transactions — try Phantom, Backpack, or Solflare instead.'
+          );
+        } else {
+          setError(`Failed to join game: ${msg}`);
+        }
       } finally {
         setJoining(null);
       }
