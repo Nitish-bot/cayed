@@ -351,11 +351,13 @@ function MyGamesList({
                 <span className={`font-pixel text-[6px] ${status.color}`}>
                   {status.text}
                 </span>
-                <span className={`font-pixel text-[5px] border px-1.5 py-0.5 ${
-                  isP1
-                    ? 'border-arcade-cyan/40 text-arcade-cyan/70'
-                    : 'border-arcade-yellow/40 text-arcade-yellow/70'
-                }`}>
+                <span
+                  className={`font-pixel border px-1.5 py-0.5 text-[5px] ${
+                    isP1
+                      ? 'border-arcade-cyan/40 text-arcade-cyan/70'
+                      : 'border-arcade-yellow/40 text-arcade-yellow/70'
+                  }`}
+                >
                   {role}
                 </span>
                 {opAddr && (

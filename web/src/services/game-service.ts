@@ -81,9 +81,7 @@ export class GameService {
   private _authExpiresAt = 0;
   private _authPromise: Promise<void> | null = null;
   private _playerAddress: Address | null = null;
-  private _signMessageFn:
-    | ((message: Uint8Array) => Promise<Uint8Array>)
-    | null = null;
+  private _signMessageFn: ((message: Uint8Array) => Promise<Uint8Array>) | null = null;
 
   get isAuthenticated(): boolean {
     return this.ephemeralAuthed !== null && Date.now() < this._authExpiresAt;
@@ -131,7 +129,7 @@ export class GameService {
       playerAddress,
       signMessage
     );
-    console.log(expiresAt)
+    console.log(expiresAt);
     this._authExpiresAt = expiresAt;
     this.ephemeralAuthed = connect(
       `${this.config.ephemeralUrl}?token=${token}`,
@@ -249,7 +247,11 @@ export class GameService {
     );
 
     // Send all 4 delegation instructions together (same pattern as createGame)
-    await this.sendOnDevnet(player, [joinGameIx, ...gameDelegateIxs, ...boardDelegateIxs]);
+    await this.sendOnDevnet(player, [
+      joinGameIx,
+      ...gameDelegateIxs,
+      ...boardDelegateIxs,
+    ]);
 
     return { playerBoardPda };
   }
@@ -455,13 +457,34 @@ export class GameService {
 
   private async sendOnEphemeral(
     feePayer: TransactionSigner,
-    instructions: Instruction[]
+    instructions: Instruction[],
+    retries = 1
   ): Promise<void> {
     await this.ensureAuthenticated();
-    await sendTransactionWithWallet({
-      connection: this.ephemeral,
-      feePayer,
-      instructions,
-    });
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        await sendTransactionWithWallet({
+          connection: this.ephemeral,
+          feePayer,
+          instructions,
+        });
+        return;
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err);
+        // Retry on transient 500 / network errors from the TEE endpoint
+        if (msg.includes('500') || msg.includes('fetch') || msg.includes('ECONNRESET')) {
+          console.warn(
+            `sendOnEphemeral attempt ${attempt + 1}/${retries} failed, retrying...`,
+            err
+          );
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+        throw err; // non-transient error — don't retry
+      }
+    }
+    throw lastErr;
   }
 }

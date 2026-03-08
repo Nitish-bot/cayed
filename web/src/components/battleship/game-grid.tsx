@@ -124,9 +124,7 @@ export function GameGrid({
         {Array.from({ length: rows }, (_, y) => (
           <Fragment key={`row-${y}`}>
             {/* Row header */}
-            <div
-              className="text-arcade-muted font-pixel flex w-6 items-center justify-center text-[7px]"
-            >
+            <div className="text-arcade-muted font-pixel flex w-6 items-center justify-center text-[7px]">
               {y + 1}
             </div>
             {/* Cells */}
