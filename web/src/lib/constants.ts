@@ -22,9 +22,9 @@ export function getTotalShipCells(gridSize: number): number {
   return getShipSizes(gridSize).reduce((sum, s) => sum + s, 0);
 }
 
-/** Display string for grid dimensions: each board is gridSize × (gridSize/2) */
+/** Display string for grid size */
 export function gridDisplay(gridSize: number): string {
-  return `${gridSize}×${gridSize / 2}`;
+  return `${gridSize}`;
 }
 
 /** Format lamports as SOL string */

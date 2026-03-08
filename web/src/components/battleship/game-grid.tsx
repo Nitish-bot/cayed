@@ -29,7 +29,7 @@ type Props = {
 
 const STATE_CLASSES: Record<CellState, string> = {
   empty: 'bg-arcade-panel border-arcade-border hover:bg-[rgb(35_28_55)] cursor-pointer',
-  ship: 'bg-arcade-green/70 border-arcade-green',
+  ship: 'bg-arcade-green/70 border-arcade-border p-[3px] bg-clip-content',
   hit: 'bg-arcade-red border-arcade-red',
   miss: 'bg-[rgb(40_35_60)] border-[rgb(65_55_90)]',
   sunk: 'bg-arcade-red/50 border-arcade-red/60',
@@ -38,9 +38,8 @@ const STATE_CLASSES: Record<CellState, string> = {
 };
 
 /**
- * Renders a game grid with correct on-chain dimensions:
- * - Columns: gridSize
- * - Rows: gridSize / 2  (each player's board is a half-grid)
+ * Renders a player's game grid.
+ * On-chain, each player's board is gridSize columns × gridSize/2 rows.
  */
 export function GameGrid({
   gridSize,
@@ -121,7 +120,7 @@ export function GameGrid({
           </div>
         ))}
 
-        {/* Rows – only gridSize/2 rows */}
+        {/* Rows */}
         {Array.from({ length: rows }, (_, y) => (
           <Fragment key={`row-${y}`}>
             {/* Row header */}

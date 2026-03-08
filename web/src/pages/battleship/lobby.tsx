@@ -106,8 +106,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
       'exists' in g &&
       g.exists &&
       (g.data.player1 === account.address ||
-        (isSome(g.data.player2) && g.data.player2.value === account.address)) &&
-      g.data.status.__kind !== 'AwaitingPlayerTwo'
+        (isSome(g.data.player2) && g.data.player2.value === account.address))
   );
 
   const handleCreateGame = useCallback(async () => {
@@ -298,19 +297,19 @@ function LobbyHeader({ onBack }: { onBack: () => void }) {
 function statusLabel(status: Game['status']): { text: string; color: string } {
   switch (status.__kind) {
     case 'AwaitingPlayerTwo':
-      return { text: 'OPEN', color: 'text-arcade-green' };
+      return { text: 'WAITING FOR OPPONENT', color: 'text-arcade-cyan' };
     case 'HidingShips':
-      return { text: 'SETUP', color: 'text-arcade-yellow' };
+      return { text: 'PLACING SHIPS', color: 'text-arcade-yellow' };
     case 'InProgress':
-      return { text: 'BATTLE', color: 'text-arcade-red' };
+      return { text: 'IN BATTLE', color: 'text-arcade-red' };
     case 'Completed':
-      return { text: 'ENDED', color: 'text-arcade-muted' };
+      return { text: 'FINISHED', color: 'text-arcade-green' };
     case 'WinnerRevealed':
-      return { text: 'REVEALED', color: 'text-arcade-muted' };
+      return { text: 'COMPLETE', color: 'text-arcade-muted' };
     case 'Cancelled':
       return { text: 'CANCELLED', color: 'text-arcade-muted' };
     case 'Forfeited':
-      return { text: 'FORFEIT', color: 'text-arcade-muted' };
+      return { text: 'FORFEITED', color: 'text-arcade-muted' };
     default:
       return { text: 'UNKNOWN', color: 'text-arcade-muted' };
   }
@@ -335,10 +334,11 @@ function MyGamesList({
           const game = g.data;
           const status = statusLabel(game.status);
           const isP1 = account.address === game.player1;
+          const role = isP1 ? 'CREATED' : 'JOINED';
           const opAddr = isP1
             ? isSome(game.player2)
               ? truncateAddress(game.player2.value)
-              : '???'
+              : null
             : truncateAddress(game.player1);
 
           return (
@@ -351,9 +351,18 @@ function MyGamesList({
                 <span className={`font-pixel text-[6px] ${status.color}`}>
                   {status.text}
                 </span>
-                <span className="text-arcade-muted font-pixel text-[6px]">
-                  VS {opAddr}
+                <span className={`font-pixel text-[5px] border px-1.5 py-0.5 ${
+                  isP1
+                    ? 'border-arcade-cyan/40 text-arcade-cyan/70'
+                    : 'border-arcade-yellow/40 text-arcade-yellow/70'
+                }`}>
+                  {role}
                 </span>
+                {opAddr && (
+                  <span className="text-arcade-muted font-pixel text-[6px]">
+                    VS {opAddr}
+                  </span>
+                )}
                 <span className="text-arcade-cyan font-pixel text-[6px]">
                   {gridDisplay(game.gridSize)}
                 </span>
