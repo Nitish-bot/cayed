@@ -133,6 +133,8 @@ impl<'info> MakeMove<'info> {
                 };
             }
 
+            self.game.exit(&crate::ID)?;
+
             commit_accounts(
                 &self.player,
                 vec![&self.game.to_account_info()],

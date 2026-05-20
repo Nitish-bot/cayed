@@ -1,12 +1,7 @@
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+
 import * as anchor from '@coral-xyz/anchor';
-import {
-  Connection,
-  Keypair,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  sendAndConfirmTransaction,
-  Transaction,
-} from '@solana/web3.js';
 import {
   AUTHORITY_FLAG,
   createDelegatePermissionInstruction,
@@ -15,9 +10,14 @@ import {
   TX_LOGS_FLAG,
   waitUntilPermissionActive,
 } from '@magicblock-labs/ephemeral-rollups-sdk';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  sendAndConfirmTransaction,
+  Transaction,
+} from '@solana/web3.js';
 import { describe, beforeAll, it, expect } from 'bun:test';
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
 import nacl from 'tweetnacl';
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -26,7 +26,7 @@ async function sendAndConfirmER(
   conn: Connection,
   feePayer: Keypair,
   ix: anchor.web3.TransactionInstruction,
-  retries = 3,
+  retries = 3
 ) {
   let lastErr: unknown;
   for (let a = 0; a < retries; a++) {
@@ -42,7 +42,7 @@ async function sendAndConfirmER(
       });
       const res = await conn.confirmTransaction(
         { signature: sig, blockhash, lastValidBlockHeight },
-        'confirmed',
+        'confirmed'
       );
       if (res.value.err) throw new Error(JSON.stringify(res.value.err));
       return sig;
@@ -84,7 +84,7 @@ describe('cayed', () => {
   const erWs = process.env.EPHEMERAL_WS_ENDPOINT || 'ws://127.0.0.1:7800';
 
   const ER_VALIDATOR = new PublicKey(
-    process.env.ER_VALIDATOR || 'mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev',
+    process.env.ER_VALIDATOR || 'mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev'
   );
 
   beforeAll(async () => {
@@ -93,7 +93,7 @@ describe('cayed', () => {
 
     const walletPath = process.env.ANCHOR_WALLET || `${homedir()}/.config/solana/id.json`;
     authorityKp = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(readFileSync(walletPath, 'utf-8'))),
+      Uint8Array.from(JSON.parse(readFileSync(walletPath, 'utf-8')))
     );
 
     const p1b = Uint8Array.from(JSON.parse(process.env.P1B!));
@@ -102,22 +102,20 @@ describe('cayed', () => {
     player2 = Keypair.fromSecretKey(p2b);
     otherAuth = Keypair.generate();
 
-    provider = new anchor.AnchorProvider(
-      baseConn,
-      new anchor.Wallet(authorityKp),
-      { commitment: 'confirmed' },
-    );
+    provider = new anchor.AnchorProvider(baseConn, new anchor.Wallet(authorityKp), {
+      commitment: 'confirmed',
+    });
 
     const idl = JSON.parse(readFileSync('target/idl/cayed.json', 'utf-8'));
     program = new anchor.Program(idl, provider);
 
     [configPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('config')],
-      program.programId,
+      program.programId
     );
     [vaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from('vault')],
-      program.programId,
+      program.programId
     );
 
     if (erUrl.includes('tee')) {
@@ -127,11 +125,11 @@ describe('cayed', () => {
       const t1 = await getAuthToken(clean, player1.publicKey, m => sign(m, p1b));
       const t2 = await getAuthToken(clean, player2.publicKey, m => sign(m, p2b));
       erConnP1 = new Connection(`${clean}?token=${t1.token}`, {
-        wsEndpoint: erWs,
+        wsEndpoint: `${erWs}?token=${t1.token}`,
         commitment: 'confirmed',
       });
       erConnP2 = new Connection(`${clean}?token=${t2.token}`, {
-        wsEndpoint: erWs,
+        wsEndpoint: `${erWs}?token=${t2.token}`,
         commitment: 'confirmed',
       });
     } else {
@@ -159,7 +157,7 @@ describe('cayed', () => {
     });
 
     const raw = await baseConn.getAccountInfo(configPda);
-    const c = program.coder.accounts.decode('Config', raw!.data);
+    const c = program.coder.accounts.decode('config', raw!.data);
     expect(c.authority.toBase58()).toBe(authorityKp.publicKey.toBase58());
     expect(c.maxGridSize).toBe(10);
   });
@@ -177,7 +175,6 @@ describe('cayed', () => {
     tx.feePayer = otherAuth.publicKey;
     try {
       await sendAndConfirmTransaction(baseConn, tx, [otherAuth], {
-        skipPreflight: true,
         commitment: 'confirmed',
       });
       throw new Error('should have failed');
@@ -193,11 +190,11 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     const permAddr = permissionPdaFromAccount(p1Pda);
@@ -215,10 +212,9 @@ describe('cayed', () => {
       .instruction();
 
     const permIx = await program.methods
-      .createPermission(
-        { playerBoard: { gameId: gid, player: player1.publicKey } },
-        [{ flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player1.publicKey }],
-      )
+      .createPermission({ playerBoard: { gameId: gid, player: player1.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player1.publicKey },
+      ])
       .accounts({
         payer: player1.publicKey,
         permissionedAccount: p1Pda,
@@ -247,7 +243,7 @@ describe('cayed', () => {
     });
 
     const raw = await baseConn.getAccountInfo(gamePda);
-    const g = program.coder.accounts.decode('Game', raw!.data);
+    const g = program.coder.accounts.decode('game', raw!.data);
     expect(g.status).toHaveProperty('awaitingPlayerTwo');
 
     const ok = await waitUntilPermissionActive(erUrl, p1Pda);
@@ -259,11 +255,11 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     const tx = await program.methods
       .createGame(gid, 4, new anchor.BN(50_000))
@@ -293,11 +289,11 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     const tx = await program.methods
       .createGame(gid, 12, new anchor.BN(0))
@@ -329,15 +325,15 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     const [p2Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player2.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     // create
@@ -372,10 +368,9 @@ describe('cayed', () => {
       .instruction();
 
     const permIx = await program.methods
-      .createPermission(
-        { playerBoard: { gameId: gid, player: player2.publicKey } },
-        [{ flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player2.publicKey }],
-      )
+      .createPermission({ playerBoard: { gameId: gid, player: player2.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player2.publicKey },
+      ])
       .accounts({
         payer: player2.publicKey,
         permissionedAccount: p2Pda,
@@ -409,7 +404,7 @@ describe('cayed', () => {
     });
 
     const raw = await baseConn.getAccountInfo(gamePda);
-    const g = program.coder.accounts.decode('Game', raw!.data);
+    const g = program.coder.accounts.decode('game', raw!.data);
     expect(g.status).toHaveProperty('hidingShips');
     expect(g.player2?.toBase58()).toBe(player2.publicKey.toBase58());
 
@@ -422,11 +417,11 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     let tx = await program.methods
@@ -473,15 +468,15 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     const [p2Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player2.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     let tx = await program.methods
@@ -520,7 +515,7 @@ describe('cayed', () => {
     const p3 = Keypair.generate();
     const [p3Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, p3.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     tx = await program.methods
       .joinGame()
@@ -535,7 +530,6 @@ describe('cayed', () => {
     tx.feePayer = p3.publicKey;
     try {
       await sendAndConfirmTransaction(baseConn, tx, [p3], {
-        skipPreflight: true,
         commitment: 'confirmed',
       });
       throw new Error('should have failed');
@@ -559,18 +553,22 @@ describe('cayed', () => {
     const id = gid.toArrayLike(Buffer, 'le', 8);
     const [gamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     const [p1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     const [p2Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player2.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
-    let tx = await program.methods
+    const perm1 = permissionPdaFromAccount(p1Pda);
+    const perm2 = permissionPdaFromAccount(p2Pda);
+
+    // create game + permission + delegate P1 board
+    const createIx = await program.methods
       .createGame(gid, 4, new anchor.BN(0))
       .accounts({
         player: player1.publicKey,
@@ -580,14 +578,43 @@ describe('cayed', () => {
         vault: vaultPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
+
+    const perm1Ix = await program.methods
+      .createPermission({ playerBoard: { gameId: gid, player: player1.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player1.publicKey },
+      ])
+      .accounts({
+        payer: player1.publicKey,
+        permissionedAccount: p1Pda,
+        permission: perm1,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction();
+
+    const delPerm1 = createDelegatePermissionInstruction({
+      payer: player1.publicKey,
+      authority: [player1.publicKey, true],
+      permissionedAccount: [p1Pda, false],
+      validator: ER_VALIDATOR,
+    });
+
+    const delPda1 = await program.methods
+      .delegatePda({ playerBoard: { gameId: gid, player: player1.publicKey } })
+      .accounts({ payer: player1.publicKey, pda: p1Pda, validator: ER_VALIDATOR })
+      .instruction();
+
+    let tx = new Transaction().add(createIx, perm1Ix, delPerm1, delPda1);
     tx.feePayer = player1.publicKey;
     await sendAndConfirmTransaction(baseConn, tx, [player1], {
       skipPreflight: true,
       commitment: 'confirmed',
     });
 
-    tx = await program.methods
+    await waitUntilPermissionActive(erUrl, p1Pda);
+
+    // join + permission + delegate P2 board + game
+    const joinIx = await program.methods
       .joinGame()
       .accounts({
         player: player2.publicKey,
@@ -596,12 +623,45 @@ describe('cayed', () => {
         vault: vaultPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
+
+    const perm2Ix = await program.methods
+      .createPermission({ playerBoard: { gameId: gid, player: player2.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player2.publicKey },
+      ])
+      .accounts({
+        payer: player2.publicKey,
+        permissionedAccount: p2Pda,
+        permission: perm2,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction();
+
+    const delPerm2 = createDelegatePermissionInstruction({
+      payer: player2.publicKey,
+      authority: [player2.publicKey, true],
+      permissionedAccount: [p2Pda, false],
+      validator: ER_VALIDATOR,
+    });
+
+    const delGameIx = await program.methods
+      .delegatePda({ game: { gameId: gid } })
+      .accounts({ payer: player2.publicKey, pda: gamePda, validator: ER_VALIDATOR })
+      .instruction();
+
+    const delPda2 = await program.methods
+      .delegatePda({ playerBoard: { gameId: gid, player: player2.publicKey } })
+      .accounts({ payer: player2.publicKey, pda: p2Pda, validator: ER_VALIDATOR })
+      .instruction();
+
+    tx = new Transaction().add(joinIx, delGameIx, perm2Ix, delPerm2, delPda2);
     tx.feePayer = player2.publicKey;
     await sendAndConfirmTransaction(baseConn, tx, [player2], {
       skipPreflight: true,
       commitment: 'confirmed',
     });
+
+    await waitUntilPermissionActive(erUrl, p2Pda);
 
     return { gamePda, p1Pda, p2Pda };
   }
@@ -615,7 +675,6 @@ describe('cayed', () => {
       .accounts({
         player: player1.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p1Pda,
       })
       .instruction();
@@ -626,19 +685,18 @@ describe('cayed', () => {
       .accounts({
         player: player2.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p2Pda,
       })
       .instruction();
     await sendAndConfirmER(erConnP2, player2, ix2);
 
     const b1 = program.coder.accounts.decode(
-      'PlayerBoard',
-      (await erConnP1.getAccountInfo(p1Pda))!.data,
+      'playerBoard',
+      (await erConnP1.getAccountInfo(p1Pda))!.data
     );
     const b2 = program.coder.accounts.decode(
-      'PlayerBoard',
-      (await erConnP2.getAccountInfo(p2Pda))!.data,
+      'playerBoard',
+      (await erConnP2.getAccountInfo(p2Pda))!.data
     );
     expect(b1.shipCoordinates.length).toBe(2);
     expect(b2.shipCoordinates.length).toBe(2);
@@ -652,7 +710,6 @@ describe('cayed', () => {
       .accounts({
         player: player1.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p1Pda,
       })
       .instruction();
@@ -675,7 +732,6 @@ describe('cayed', () => {
       .accounts({
         player: player1.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p1Pda,
       })
       .instruction();
@@ -698,7 +754,6 @@ describe('cayed', () => {
       .accounts({
         player: player1.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p1Pda,
       })
       .instruction();
@@ -721,7 +776,6 @@ describe('cayed', () => {
       .accounts({
         player: player1.publicKey,
         game: gamePda,
-        // @ts-ignore
         playerBoard: p1Pda,
       })
       .instruction();
@@ -747,10 +801,9 @@ describe('cayed', () => {
         .accounts({
           player: player1.publicKey,
           game: gamePda,
-          // @ts-ignore
           playerBoard: p1Pda,
         })
-        .instruction(),
+        .instruction()
     );
 
     const own = await erConnP1.getAccountInfo(p1Pda);
@@ -762,7 +815,6 @@ describe('cayed', () => {
 
   // ─────────── Full Game: Play + Reveal ───────────
 
-  let playGameId: anchor.BN;
   let playGamePda: PublicKey;
   let playP1Pda: PublicKey;
   let playP2Pda: PublicKey;
@@ -770,20 +822,19 @@ describe('cayed', () => {
   it('sets up game for playthrough', async () => {
     let gid = new anchor.BN(Date.now());
     if (gid.toNumber() % 2 !== 0) gid = new anchor.BN(gid.toNumber() + 1); // P1 first
-    playGameId = gid;
 
     const id = gid.toArrayLike(Buffer, 'le', 8);
     [playGamePda] = PublicKey.findProgramAddressSync(
       [Buffer.from('game'), id],
-      program.programId,
+      program.programId
     );
     [playP1Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player1.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
     [playP2Pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('player'), id, player2.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     const perm1 = permissionPdaFromAccount(playP1Pda);
@@ -803,10 +854,9 @@ describe('cayed', () => {
       .instruction();
 
     const perm1Ix = await program.methods
-      .createPermission(
-        { playerBoard: { gameId: gid, player: player1.publicKey } },
-        [{ flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player1.publicKey }],
-      )
+      .createPermission({ playerBoard: { gameId: gid, player: player1.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player1.publicKey },
+      ])
       .accounts({
         payer: player1.publicKey,
         permissionedAccount: playP1Pda,
@@ -849,10 +899,9 @@ describe('cayed', () => {
       .instruction();
 
     const perm2Ix = await program.methods
-      .createPermission(
-        { playerBoard: { gameId: gid, player: player2.publicKey } },
-        [{ flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player2.publicKey }],
-      )
+      .createPermission({ playerBoard: { gameId: gid, player: player2.publicKey } }, [
+        { flags: AUTHORITY_FLAG | TX_LOGS_FLAG, pubkey: player2.publicKey },
+      ])
       .accounts({
         payer: player2.publicKey,
         permissionedAccount: playP2Pda,
@@ -896,10 +945,9 @@ describe('cayed', () => {
         .accounts({
           player: player1.publicKey,
           game: playGamePda,
-          // @ts-ignore
           playerBoard: playP1Pda,
         })
-        .instruction(),
+        .instruction()
     );
 
     await sendAndConfirmER(
@@ -910,10 +958,9 @@ describe('cayed', () => {
         .accounts({
           player: player2.publicKey,
           game: playGamePda,
-          // @ts-ignore
           playerBoard: playP2Pda,
         })
-        .instruction(),
+        .instruction()
     );
   });
 
@@ -957,8 +1004,15 @@ describe('cayed', () => {
 
   it('P1 wins, reveals winner', async () => {
     // P2 ships at (2,0)(3,0) and (1,1). P1 attacks all 3.
-    const hits = [[2, 0], [3, 0], [1, 1]];
-    const misses = [[0, 1], [0, 0]];
+    const hits = [
+      [2, 0],
+      [3, 0],
+      [1, 1],
+    ];
+    const misses = [
+      [0, 1],
+      [0, 0],
+    ];
 
     for (let i = 0; i < hits.length; i++) {
       await sendAndConfirmER(
@@ -973,7 +1027,7 @@ describe('cayed', () => {
             playerBoard: playP1Pda,
             opponentBoard: playP2Pda,
           })
-          .instruction(),
+          .instruction()
       );
       if (i < misses.length) {
         await sendAndConfirmER(
@@ -988,13 +1042,13 @@ describe('cayed', () => {
               playerBoard: playP2Pda,
               opponentBoard: playP1Pda,
             })
-            .instruction(),
+            .instruction()
         );
       }
     }
 
-    const raw = await baseConn.getAccountInfo(playGamePda);
-    const g = program.coder.accounts.decode('Game', raw!.data);
+    const raw = await erConnP1.getAccountInfo(playGamePda);
+    const g = program.coder.accounts.decode('game', raw!.data);
     expect(g.status).toHaveProperty('completed');
     expect(g.status.completed.winner.toBase58()).toBe(player1.publicKey.toBase58());
 
@@ -1015,21 +1069,21 @@ describe('cayed', () => {
           permission2: perm2,
           payer: player1.publicKey,
         })
-        .instruction(),
+        .instruction()
     );
     await sleep(5000);
 
     // boards public
     const p1r = await baseConn.getAccountInfo(playP1Pda);
-    const p1 = program.coder.accounts.decode('PlayerBoard', p1r!.data);
+    const p1 = program.coder.accounts.decode('playerBoard', p1r!.data);
     expect(p1.shipCoordinates.length).toBe(2);
 
     const p2r = await baseConn.getAccountInfo(playP2Pda);
-    const p2 = program.coder.accounts.decode('PlayerBoard', p2r!.data);
+    const p2 = program.coder.accounts.decode('playerBoard', p2r!.data);
     expect(p2.shipCoordinates.length).toBe(2);
 
     const gr = await baseConn.getAccountInfo(playGamePda);
-    const g2 = program.coder.accounts.decode('Game', gr!.data);
+    const g2 = program.coder.accounts.decode('game', gr!.data);
     expect(g2.status).toHaveProperty('winnerRevealed');
     expect(g2.status.winnerRevealed.winner.toBase58()).toBe(player1.publicKey.toBase58());
   });

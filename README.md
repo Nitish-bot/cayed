@@ -10,18 +10,18 @@ A two-player Battleship game deployed as a single Anchor program on Solana devne
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Blockchain | Solana (devnet) |
-| Smart Contract | Anchor 0.32.1, Rust 1.89.0 |
-| Private State | MagicBlock Ephemeral Rollups SDK 0.8.x |
-| Client SDK | @solana/kit 6.x, Codama-generated client |
-| Frontend | React 19, TypeScript, Vite 7 |
-| Styling | Tailwind CSS v4.1, React Aria Components |
-| Routing | React Router 7 |
-| Wallet | wallet-standard, @solana/react |
-| Runtime | Bun |
-| Testing | Bun test runner + Anchor test harness |
+| Layer          | Technology                               |
+| -------------- | ---------------------------------------- |
+| Blockchain     | Solana (devnet)                          |
+| Smart Contract | Anchor 0.32.1, Rust 1.89.0               |
+| Private State  | MagicBlock Ephemeral Rollups SDK 0.8.x   |
+| Client SDK     | @solana/kit 6.x, Codama-generated client |
+| Frontend       | React 19, TypeScript, Vite 7             |
+| Styling        | Tailwind CSS v4.1, React Aria Components |
+| Routing        | React Router 7                           |
+| Wallet         | wallet-standard, @solana/react           |
+| Runtime        | Bun                                      |
+| Testing        | Bun test runner + Anchor test harness    |
 
 ## Quick Start
 
@@ -183,11 +183,11 @@ See `agents.md` §3 for full gap details and fix recommendations.
 
 ## Documentation
 
-| File | Purpose |
-|------|---------|
-| `agents.md` | Agent architecture guide — how this codebase is structured, what to change, what NOT to change |
-| `CONTEXT.md` | Domain glossary — definitions of Game, PlayerBoard, ShipCoordinates, GameStatus, ER, etc. |
-| `web/CLAUDE.md` | Frontend UI component conventions (React Aria, kebab-case, brand colors) |
+| File            | Purpose                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `agents.md`     | Agent architecture guide — how this codebase is structured, what to change, what NOT to change |
+| `CONTEXT.md`    | Domain glossary — definitions of Game, PlayerBoard, ShipCoordinates, GameStatus, ER, etc.      |
+| `web/CLAUDE.md` | Frontend UI component conventions (React Aria, kebab-case, brand colors)                       |
 
 ## License
 

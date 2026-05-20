@@ -9,6 +9,7 @@
 Cayed is a **Battleship game on Solana** using MagicBlock Ephemeral Rollups for private ship placement. One Anchor program, one React frontend. No multi-game support yet. No prediction market yet.
 
 **Core flow:**
+
 1. Player 1 creates a game with grid size and wager → deposits SOL into vault
 2. Player 2 joins → deposits matching wager
 3. Both players place ships (hidden via ER delegation)
@@ -26,24 +27,26 @@ Cayed is a **Battleship game on Solana** using MagicBlock Ephemeral Rollups for 
 
 **Instructions** (8 total):
 
-| Instruction | Purpose |
-|-------------|---------|
-| `init_config` | Initialize protocol params (authority, vault, max_grid_size, fee) |
-| `create_game` | Player 1 creates game + deposits wager |
-| `join_game` | Player 2 joins + deposits wager |
-| `hide_ships` | Player places ships on their private board |
-| `make_move` | Attack a cell on opponent's board |
-| `reveal_winner` | Declare winner, clear permissions, commit/undelegate |
-| `create_permission` | ER access control setup |
-| `delegate_pda` | Move account to ER validator |
+| Instruction         | Purpose                                                           |
+| ------------------- | ----------------------------------------------------------------- |
+| `init_config`       | Initialize protocol params (authority, vault, max_grid_size, fee) |
+| `create_game`       | Player 1 creates game + deposits wager                            |
+| `join_game`         | Player 2 joins + deposits wager                                   |
+| `hide_ships`        | Player places ships on their private board                        |
+| `make_move`         | Attack a cell on opponent's board                                 |
+| `reveal_winner`     | Declare winner, clear permissions, commit/undelegate              |
+| `create_permission` | ER access control setup                                           |
+| `delegate_pda`      | Move account to ER validator                                      |
 
 **State accounts:**
+
 - `Config` — protocol-wide params
 - `Vault` — wager custody
 - `Game` — public session state
 - `PlayerBoard` — private per-player state (ships, hits, sunk tracking)
 
 **Key on-chain design:**
+
 - `u64` bitmaps for O(1) hit detection and sunk checking
 - Turn order derived from move count parity (no external oracle)
 - Ship placement validated for bounds, linearity, and overlap — **but NOT for size** (see Gaps)
@@ -53,17 +56,20 @@ Cayed is a **Battleship game on Solana** using MagicBlock Ephemeral Rollups for 
 **Tech**: React 19, Vite 7, TypeScript, Tailwind v4, React Aria Components, React Router 7
 
 **Provider chain** (dependency injection):
+
 ```
 ThemeProvider → ChainContextProvider → SelectedWalletAccountContextProvider
   → ConnectionContextProvider → GameServiceProvider → App
 ```
 
 **Service layer:**
+
 - `GameService` — all program interactions, dual connection (devnet + ER), auth token management, instruction bundling
 - `pda.ts` — centralized PDA derivation
 - `fetch-accounts.ts` — account fetching with ER fallback
 
 **Pages:**
+
 - `/` — home/arcade launcher
 - `/battleship` — lobby (create/join)
 - `/battleship/:gameId` — active game (stage router)
@@ -72,9 +78,11 @@ ThemeProvider → ChainContextProvider → SelectedWalletAccountContextProvider
 `Loading → AwaitingOpponent → Placement → WaitingShips → Battle → Finished → Revealed`
 
 **Client generation:**
+
 ```
 anchor build → target/idl/cayed.json → bun createCodamaClient.ts → web/client/cayed/
 ```
+
 The `web/client/` directory is gitignored and must be regenerated after program changes.
 
 ---
@@ -90,6 +98,7 @@ These are real problems in the current MVP. Do not paper over them.
 `create_game` and `join_game` deposit wagers into the `Vault` PDA via CPI transfer. `reveal_winner` sets the winner in `Game.status` but **never transfers the accumulated wagers out**.
 
 **Fix**: Add payout logic to `reveal_winner`:
+
 ```rust
 let total_pot = game.wager * 2;
 let fee_amount = (total_pot * config.fee as u64) / 10_000;
@@ -131,6 +140,7 @@ The sole test (`tests/cayed.test.ts`) tests the happy path only. None of the 22 
 `web/src/pages/battleship/game.tsx` is 571 lines with PDA derivation, state polling, placement logic, attack handling, winner reveal, keyboard shortcuts, error dismissal, and stage rendering all in one file.
 
 **Fix (post-MVP)**: Extract into hooks:
+
 - `useBattleshipPdas(gameId)` — PDA derivation
 - `useBattleshipState(gameService, pdas)` — polling + account fetching
 - `useShipPlacement(gridSize, shipSizes)` — placement state machine
@@ -161,6 +171,7 @@ The test helper uses `skipPreflight: true` on every transaction, bypassing simul
 ### What Exists
 
 **One file**: `tests/cayed.test.ts` (504 lines)
+
 - Full happy-path E2E: init config → create game → join → hide ships → verify privacy → play full game → reveal winner
 - Uses real `mb-test-validator` + `ephemeral-validator`
 - Tests ER privacy invariant (player can't read opponent board)
@@ -168,27 +179,30 @@ The test helper uses `skipPreflight: true` on every transaction, bypassing simul
 
 ### What's Missing
 
-| Layer | Status | Needed |
-|-------|--------|--------|
-| Rust unit tests | ❌ None | `#[cfg(test)]` modules for bitmap math, turn logic, sunk detection |
-| Error path tests | ❌ None | One test per `CayedError` variant |
-| Frontend unit tests | ❌ None | Component tests for stages, placement validation |
+| Layer                        | Status  | Needed                                                              |
+| ---------------------------- | ------- | ------------------------------------------------------------------- |
+| Rust unit tests              | ❌ None | `#[cfg(test)]` modules for bitmap math, turn logic, sunk detection  |
+| Error path tests             | ❌ None | One test per `CayedError` variant                                   |
+| Frontend unit tests          | ❌ None | Component tests for stages, placement validation                    |
 | Integration tests (per-flow) | ❌ None | Separate tests for: create+join, hide ships, move mechanics, reveal |
-| CI test step | ❌ None | Run tests in GitHub Actions before deploy |
+| CI test step                 | ❌ None | Run tests in GitHub Actions before deploy                           |
 
 ### Recommended Test Strategy
 
 **Phase 1 (now — fixes the critical gaps):**
+
 1. Add payout test to existing E2E (verify vault balance decreases, winner balance increases)
 2. Add ship size validation test (verify `hide_ships` rejects wrong sizes)
 3. Add error-path matrix: `InvalidTurn`, `CellAlreadyAttacked`, `AttackOutOfBounds`, `ShipOverlap`, `InvalidShipPlacement`, `ShipsAlreadyPlaced`
 
 **Phase 2 (next):**
+
 1. Add Rust unit tests: `cell_bit()`, `all_ships_sunk()`, `PlayerBoard` bitmap operations
 2. Split monolithic test into focused files: `test_config.ts`, `test_game_flow.ts`, `test_gameplay.ts`, `test_reveal.ts`
 3. Add frontend tests: placement validation, stage rendering
 
 **Phase 3 (later):**
+
 1. Add timeout/forfeit tests
 2. Add fee calculation tests
 3. Add edge cases: zero-wager game, max grid size, minimum grid size
@@ -200,6 +214,7 @@ The test helper uses `skipPreflight: true` on every transaction, bypassing simul
 ### 5.1 Don't Add Multi-Game Abstractions Yet
 
 The codebase is Battleship-only. Do NOT introduce:
+
 - `Session` / `PlayerState` generic accounts
 - `GameAdapter` trait or dispatch pattern
 - `GameType` enum
@@ -237,46 +252,46 @@ When touching this codebase, these files matter most (highest to lowest):
 
 ### On-Chain (Rust)
 
-| Priority | File | Why |
-|----------|------|-----|
-| 🔴 | `programs/cayed/src/instructions/reveal_winner.rs` | Missing payout — critical gap |
-| 🔴 | `programs/cayed/src/instructions/hide_ships.rs` | Missing ship size validation |
-| 🔴 | `programs/cayed/src/instructions/make_move.rs` | Core game logic, turn order, hit detection |
-| 🟡 | `programs/cayed/src/state/player_board.rs` | Bitmap math, sunk detection |
-| 🟡 | `programs/cayed/src/state/game.rs` | Game status, move history |
-| 🟡 | `programs/cayed/src/instructions/create_game.rs` | Wager deposit, game init |
-| 🟡 | `programs/cayed/src/instructions/join_game.rs` | P2 join, duplicate deposit logic |
-| 🟢 | `programs/cayed/src/instructions/init_config.rs` | Protocol setup |
-| 🟢 | `programs/cayed/src/instructions/create_permission.rs` | ER plumbing |
-| 🟢 | `programs/cayed/src/instructions/delegate_pda.rs` | ER plumbing |
+| Priority | File                                                   | Why                                        |
+| -------- | ------------------------------------------------------ | ------------------------------------------ |
+| 🔴       | `programs/cayed/src/instructions/reveal_winner.rs`     | Missing payout — critical gap              |
+| 🔴       | `programs/cayed/src/instructions/hide_ships.rs`        | Missing ship size validation               |
+| 🔴       | `programs/cayed/src/instructions/make_move.rs`         | Core game logic, turn order, hit detection |
+| 🟡       | `programs/cayed/src/state/player_board.rs`             | Bitmap math, sunk detection                |
+| 🟡       | `programs/cayed/src/state/game.rs`                     | Game status, move history                  |
+| 🟡       | `programs/cayed/src/instructions/create_game.rs`       | Wager deposit, game init                   |
+| 🟡       | `programs/cayed/src/instructions/join_game.rs`         | P2 join, duplicate deposit logic           |
+| 🟢       | `programs/cayed/src/instructions/init_config.rs`       | Protocol setup                             |
+| 🟢       | `programs/cayed/src/instructions/create_permission.rs` | ER plumbing                                |
+| 🟢       | `programs/cayed/src/instructions/delegate_pda.rs`      | ER plumbing                                |
 
 ### Frontend (TypeScript/React)
 
-| Priority | File | Why |
-|----------|------|-----|
-| 🔴 | `web/src/services/game-service.ts` | All program interactions, auth, bundling |
-| 🟡 | `web/src/pages/battleship/game.tsx` | God component — all game logic |
-| 🟡 | `web/src/pages/battleship/lobby.tsx` | Create/join flows |
-| 🟡 | `web/src/lib/ships.ts` | Placement validation (frontend side) |
-| 🟢 | `web/src/services/pda.ts` | PDA derivation |
-| 🟢 | `web/src/services/fetch-accounts.ts` | Account fetching with ER fallback |
-| 🟢 | `web/src/App.tsx` | Router (hardcoded Battleship routes) |
-| 🟢 | `web/src/components/battleship/game-grid.tsx` | Grid rendering |
+| Priority | File                                          | Why                                      |
+| -------- | --------------------------------------------- | ---------------------------------------- |
+| 🔴       | `web/src/services/game-service.ts`            | All program interactions, auth, bundling |
+| 🟡       | `web/src/pages/battleship/game.tsx`           | God component — all game logic           |
+| 🟡       | `web/src/pages/battleship/lobby.tsx`          | Create/join flows                        |
+| 🟡       | `web/src/lib/ships.ts`                        | Placement validation (frontend side)     |
+| 🟢       | `web/src/services/pda.ts`                     | PDA derivation                           |
+| 🟢       | `web/src/services/fetch-accounts.ts`          | Account fetching with ER fallback        |
+| 🟢       | `web/src/App.tsx`                             | Router (hardcoded Battleship routes)     |
+| 🟢       | `web/src/components/battleship/game-grid.tsx` | Grid rendering                           |
 
 ### Tests
 
-| Priority | File | Why |
-|----------|------|-----|
-| 🔴 | `tests/cayed.test.ts` | Only test file — needs error paths + payout test |
-| 🟡 | `test.sh` | Test runner script |
+| Priority | File                  | Why                                              |
+| -------- | --------------------- | ------------------------------------------------ |
+| 🔴       | `tests/cayed.test.ts` | Only test file — needs error paths + payout test |
+| 🟡       | `test.sh`             | Test runner script                               |
 
 ### Config/Build
 
-| Priority | File | Why |
-|----------|------|-----|
-| 🟡 | `.github/workflows/deploy.yml` | Missing test step |
-| 🟢 | `Anchor.toml` | Program config |
-| 🟢 | `createCodamaClient.ts` | Client code generation |
+| Priority | File                           | Why                    |
+| -------- | ------------------------------ | ---------------------- |
+| 🟡       | `.github/workflows/deploy.yml` | Missing test step      |
+| 🟢       | `Anchor.toml`                  | Program config         |
+| 🟢       | `createCodamaClient.ts`        | Client code generation |
 
 ---
 
@@ -284,24 +299,25 @@ When touching this codebase, these files matter most (highest to lowest):
 
 Actual decisions made for this codebase (not aspirational):
 
-| # | Decision | Date | Rationale |
-|---|----------|------|-----------|
-| 1 | Single Anchor program | Initial | Fastest path for a small team |
-| 2 | MagicBlock ER for private state | Initial | Required for hidden ship placements |
-| 3 | Bitmap-based hit tracking | Initial | O(1) operations, fits in single u64 |
-| 4 | Turn parity + game_id for first move | Initial | No external oracle needed |
-| 5 | `u64` bitmap with grid_size ≤ 10 | Initial | Max 50 cells fits in u64 |
-| 6 | Zero-wager games allowed | Initial | Free play mode |
-| 7 | Polling (3s) instead of websockets | Initial | Simpler MVP, deferred real-time |
-| 8 | No timeouts for MVP | May 2026 | Complexity deferred, indefinite locking accepted |
-| 9 | No ship size enforcement (yet) | May 2026 | Frontend guides sizes, program trusts input |
-| 10 | God component accepted for velocity | May 2026 | Extract later when adding features |
+| #   | Decision                             | Date     | Rationale                                        |
+| --- | ------------------------------------ | -------- | ------------------------------------------------ |
+| 1   | Single Anchor program                | Initial  | Fastest path for a small team                    |
+| 2   | MagicBlock ER for private state      | Initial  | Required for hidden ship placements              |
+| 3   | Bitmap-based hit tracking            | Initial  | O(1) operations, fits in single u64              |
+| 4   | Turn parity + game_id for first move | Initial  | No external oracle needed                        |
+| 5   | `u64` bitmap with grid_size ≤ 10     | Initial  | Max 50 cells fits in u64                         |
+| 6   | Zero-wager games allowed             | Initial  | Free play mode                                   |
+| 7   | Polling (3s) instead of websockets   | Initial  | Simpler MVP, deferred real-time                  |
+| 8   | No timeouts for MVP                  | May 2026 | Complexity deferred, indefinite locking accepted |
+| 9   | No ship size enforcement (yet)       | May 2026 | Frontend guides sizes, program trusts input      |
+| 10  | God component accepted for velocity  | May 2026 | Extract later when adding features               |
 
 ---
 
 ## 8. Quick Reference
 
 ### Run Tests
+
 ```bash
 ./test.sh
 # or
@@ -309,17 +325,20 @@ cd web && bun test
 ```
 
 ### Generate Client
+
 ```bash
 anchor build
 bun createCodamaClient.ts
 ```
 
 ### Dev Frontend
+
 ```bash
 cd web && bun run dev
 ```
 
 ### Deploy
+
 ```bash
 # CI handles: anchor build → gen client → vite build → gh-pages
 ```
