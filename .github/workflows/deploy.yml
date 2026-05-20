@@ -23,38 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: 1.89.0
-
-      - name: Setup Solana
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/beta/install)"
-          echo "/home/runner/.local/share/solana/install/active_release/bin:$PATH" >> $GITHUB_PATH
-
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Inject Program Keypair
-        run: |
-          mkdir -p target/deploy
-          echo "${{ secrets.PROGRAM_KEYPAIR_BYTES }}" > target/deploy/cayed-keypair.json
-
-      - name: Install Anchor CLI
-        run: cargo binstall anchor-cli@0.32.1 --no-confirm --locked
-
-      - name: Anchor build
-        run: anchor build
-        shell: bash
-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
-      - name: Install client gen dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Generate Codama Client
-        run: bun createCodamaClient.ts
 
       - name: Install frontend dependencies
         working-directory: web
@@ -62,9 +33,13 @@ jobs:
 
       - name: Build frontend
         working-directory: web
+        env:
+          EPHEMERAL_ENDPOINT: https://devnet-tee.magicblock.app
+          EPHEMERAL_WS_ENDPOINT: wss://devnet-tee.magicblock.app
+          ER_VALIDATOR: MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo
         run: bun run build
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist

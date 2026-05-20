@@ -7,6 +7,5 @@ test-ledger
 .yarn
 magicblock-test-storage
 .surfpool
-web/client
 web/dist
 .env
