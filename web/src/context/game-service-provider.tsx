@@ -43,7 +43,8 @@ export function GameServiceProvider({ children, config }: GameServiceProviderPro
   const { solanaRpcUrl, solanaRpcSubscriptionsUrl } = useContext(ChainContext);
 
   const service = useMemo(() => {
-    const erValidatorEnv = import.meta.env.VITE_ER_VALIDATOR;
+    const erValidatorEnv =
+      import.meta.env.VITE_ER_VALIDATOR ?? import.meta.env.ER_VALIDATOR;
 
     return new GameService({
       devnetUrl: config?.devnetUrl ?? solanaRpcUrl,

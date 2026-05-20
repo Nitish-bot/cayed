@@ -1,6 +1,17 @@
 import type { CellCoord } from '@/lib/ships';
+import type { UiPlayerBoard } from '@/lib/ui-accounts';
 
-import type { PlayerBoard, ShipCoordinates } from '@client/cayed';
+import type { ShipCoordinates } from '@client/cayed';
+
+/** Board bitmask fields may be bigint (on-chain) or number (React UI state). */
+export type BoardBitmapFields = {
+  hitsBitmap: bigint | number;
+  allShipsMask: bigint | number;
+};
+
+function asBigInt(v: bigint | number): bigint {
+  return typeof v === 'bigint' ? v : BigInt(v);
+}
 
 // ─── Bitmap → UI coordinate helpers ──────────────────────────────────
 //
@@ -44,35 +55,38 @@ export function testBit(mask: bigint, x: number, y: number, gridSize: number): b
  * All cells that were attacked on this board (both hits and misses).
  * These are the cells in `hitsBitmap`.
  */
-export function getAttackedCells(board: PlayerBoard, gridSize: number): CellCoord[] {
-  return bitmaskToCells(board.hitsBitmap, gridSize);
+export function getAttackedCells(
+  board: BoardBitmapFields,
+  gridSize: number
+): CellCoord[] {
+  return bitmaskToCells(asBigInt(board.hitsBitmap), gridSize);
 }
 
 /**
  * Cells that were attacked AND contain a ship (hit = attacked ∩ ship).
  */
-export function getHitCells(board: PlayerBoard, gridSize: number): CellCoord[] {
-  const hitMask = board.hitsBitmap & board.allShipsMask;
+export function getHitCells(board: BoardBitmapFields, gridSize: number): CellCoord[] {
+  const hitMask = asBigInt(board.hitsBitmap) & asBigInt(board.allShipsMask);
   return bitmaskToCells(hitMask, gridSize);
 }
 
 /**
  * Cells that were attacked but DON'T contain a ship (miss = attacked \ ship).
  */
-export function getMissCells(board: PlayerBoard, gridSize: number): CellCoord[] {
-  const missMask = board.hitsBitmap & ~board.allShipsMask;
+export function getMissCells(board: BoardBitmapFields, gridSize: number): CellCoord[] {
+  const missMask = asBigInt(board.hitsBitmap) & ~asBigInt(board.allShipsMask);
   return bitmaskToCells(missMask, gridSize);
 }
 
 /** All cells occupied by any ship on this board. */
-export function getOccupiedCells(board: PlayerBoard, gridSize: number): CellCoord[] {
-  return bitmaskToCells(board.allShipsMask, gridSize);
+export function getOccupiedCells(board: BoardBitmapFields, gridSize: number): CellCoord[] {
+  return bitmaskToCells(asBigInt(board.allShipsMask), gridSize);
 }
 
 /**
  * Returns which ships have been sunk (by index into `shipCoordinates`).
  */
-export function getSunkShipIndices(board: PlayerBoard): number[] {
+export function getSunkShipIndices(board: UiPlayerBoard): number[] {
   const indices: number[] = [];
   let mask = board.sunkMask;
   let i = 0;
@@ -87,7 +101,7 @@ export function getSunkShipIndices(board: PlayerBoard): number[] {
 /**
  * Returns the ShipCoordinates of all sunk ships on this board.
  */
-export function getSunkShips(board: PlayerBoard): ShipCoordinates[] {
+export function getSunkShips(board: UiPlayerBoard): ShipCoordinates[] {
   return getSunkShipIndices(board).map(i => board.shipCoordinates[i]!);
 }
 
@@ -95,25 +109,25 @@ export function getSunkShips(board: PlayerBoard): ShipCoordinates[] {
  * True when a specific cell at (x, y) was attacked on this board.
  */
 export function wasAttacked(
-  board: PlayerBoard,
+  board: BoardBitmapFields,
   x: number,
   y: number,
   gridSize: number
 ): boolean {
-  return testBit(board.hitsBitmap, x, y, gridSize);
+  return testBit(asBigInt(board.hitsBitmap), x, y, gridSize);
 }
 
 /**
  * True when a specific cell at (x, y) was attacked AND is a ship cell.
  */
 export function wasHit(
-  board: PlayerBoard,
+  board: BoardBitmapFields,
   x: number,
   y: number,
   gridSize: number
 ): boolean {
   return (
-    testBit(board.hitsBitmap, x, y, gridSize) &&
-    testBit(board.allShipsMask, x, y, gridSize)
+    testBit(asBigInt(board.hitsBitmap), x, y, gridSize) &&
+    testBit(asBigInt(board.allShipsMask), x, y, gridSize)
   );
 }

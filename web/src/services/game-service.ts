@@ -59,14 +59,37 @@ export interface GameServiceConfig {
  * Default config targeting MagicBlock devnet infrastructure.
  * Override via env vars if needed (Vite: `import.meta.env.VITE_*`).
  */
+/** Resolve ER URL from Vite env (supports both VITE_* and root .env names). */
+function erUrl(): string {
+  return (
+    import.meta.env.VITE_EPHEMERAL_URL ??
+    import.meta.env.EPHEMERAL_ENDPOINT ??
+    'https://devnet-tee.magicblock.app'
+  );
+}
+
+function erWsUrl(): string {
+  return (
+    import.meta.env.VITE_EPHEMERAL_WS_URL ??
+    import.meta.env.EPHEMERAL_WS_ENDPOINT ??
+    'wss://devnet-tee.magicblock.app'
+  );
+}
+
+function erValidatorAddress(): Address {
+  const raw =
+    import.meta.env.VITE_ER_VALIDATOR ?? import.meta.env.ER_VALIDATOR ?? '';
+  return address(
+    raw || 'MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo'
+  );
+}
+
 export const DEFAULT_GAME_SERVICE_CONFIG: GameServiceConfig = {
   devnetUrl: import.meta.env.VITE_BASE_URL ?? 'https://api.devnet.solana.com',
   devnetWsUrl: import.meta.env.VITE_BASE_WS_URL ?? 'wss://api.devnet.solana.com',
-  ephemeralUrl: import.meta.env.VITE_EPHEMERAL_URL ?? 'https://tee.magicblock.app',
-  ephemeralWsUrl: import.meta.env.VITE_EPHEMERAL_WS_URL ?? 'wss://tee.magicblock.app',
-  erValidator: address(
-    import.meta.env.VITE_ER_VALIDATOR ?? 'FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA'
-  ),
+  ephemeralUrl: erUrl(),
+  ephemeralWsUrl: erWsUrl(),
+  erValidator: erValidatorAddress(),
 };
 
 // ─── Service ─────────────────────────────────────────────────────────
@@ -82,6 +105,10 @@ export class GameService {
   private _authPromise: Promise<void> | null = null;
   private _playerAddress: Address | null = null;
   private _signMessageFn: ((message: Uint8Array) => Promise<Uint8Array>) | null = null;
+  /** Authed ER HTTP URL (with ?token=) for MagicBlock getBlockhashForAccounts. */
+  private _ephemeralRpcHttpUrl: string | null = null;
+  /** Authed ER WS URL (with ?token=) — required for TEE signature subscriptions. */
+  private _ephemeralWsUrl: string | null = null;
 
   get isAuthenticated(): boolean {
     return this.ephemeralAuthed !== null && Date.now() < this._authExpiresAt;
@@ -109,6 +136,13 @@ export class GameService {
     playerAddress: Address,
     signMessage: (message: Uint8Array) => Promise<Uint8Array>
   ): void {
+    if (this._playerAddress !== playerAddress) {
+      this.ephemeralAuthed = null;
+      this._ephemeralRpcHttpUrl = null;
+      this._ephemeralWsUrl = null;
+      this._authExpiresAt = 0;
+      this._authPromise = null;
+    }
     this._playerAddress = playerAddress;
     this._signMessageFn = signMessage;
   }
@@ -129,12 +163,17 @@ export class GameService {
       playerAddress,
       signMessage
     );
-    console.log(expiresAt);
     this._authExpiresAt = expiresAt;
-    this.ephemeralAuthed = connect(
-      `${this.config.ephemeralUrl}?token=${token}`,
-      this.config.ephemeralWsUrl
-    );
+    const httpBase = this.config.ephemeralUrl.replace(/\/$/, '');
+    const wsBase = this.config.ephemeralWsUrl.replace(/\/$/, '');
+    this._ephemeralRpcHttpUrl = `${httpBase}?token=${token}`;
+    // TEE endpoints require the auth token on WebSocket too (see tests/cayed.test.ts).
+    this._ephemeralWsUrl = `${wsBase}?token=${token}`;
+    this.ephemeralAuthed = connect(this._ephemeralRpcHttpUrl, this._ephemeralWsUrl);
+  }
+
+  private getEphemeralRpcHttpUrl(): string {
+    return this._ephemeralRpcHttpUrl ?? this.config.ephemeralUrl;
   }
 
   /**
@@ -272,7 +311,16 @@ export class GameService {
     const { player, gamePda, playerBoardPda, ships, waitForPermission } = opts;
 
     if (waitForPermission) {
-      await waitUntilPermissionActive(this.config.ephemeralUrl, playerBoardPda);
+      const ok = await waitUntilPermissionActive(
+        this.config.ephemeralUrl,
+        playerBoardPda,
+        30_000
+      );
+      if (!ok) {
+        throw new Error(
+          'Board permission not active on ephemeral validator yet — wait and retry'
+        );
+      }
     }
 
     const ix = getHideShipsInstruction({
@@ -458,7 +506,7 @@ export class GameService {
   private async sendOnEphemeral(
     feePayer: TransactionSigner,
     instructions: Instruction[],
-    retries = 1
+    retries = 3
   ): Promise<void> {
     await this.ensureAuthenticated();
     let lastErr: unknown;
@@ -468,18 +516,28 @@ export class GameService {
           connection: this.ephemeral,
           feePayer,
           instructions,
+          rpcHttpUrl: this.getEphemeralRpcHttpUrl(),
         });
         return;
       } catch (err) {
         lastErr = err;
         const msg = String(err);
         // Retry on transient 500 / network errors from the TEE endpoint
-        if (msg.includes('500') || msg.includes('fetch') || msg.includes('ECONNRESET')) {
+        const retryable =
+          msg.includes('500') ||
+          msg.includes('fetch') ||
+          msg.includes('ECONNRESET') ||
+          msg.includes('InvalidWritableAccount') ||
+          msg.includes('AccountNotFound');
+        if (retryable && attempt < retries - 1) {
+          const delayMs = msg.includes('InvalidWritableAccount')
+            ? 2000 * (attempt + 1)
+            : 1500 * (attempt + 1);
           console.warn(
-            `sendOnEphemeral attempt ${attempt + 1}/${retries} failed, retrying...`,
+            `sendOnEphemeral attempt ${attempt + 1}/${retries} failed, retrying in ${delayMs}ms...`,
             err
           );
-          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          await new Promise(r => setTimeout(r, delayMs));
           continue;
         }
         throw err; // non-transient error — don't retry

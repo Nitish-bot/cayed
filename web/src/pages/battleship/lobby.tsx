@@ -1,7 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 
-import { type Game } from '@client/cayed';
-import { isSome, type MaybeAccount } from '@solana/kit';
+import { isSome } from '@solana/kit';
 import { useWalletAccountTransactionSigner } from '@solana/react';
 import { type UiWalletAccount } from '@wallet-standard/react';
 import { useNavigate } from 'react-router';
@@ -9,7 +8,8 @@ import { useNavigate } from 'react-router';
 import { ChainContext } from '@/context/chain-context';
 import { useGameService } from '@/context/game-service-provider';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
-import { useGames } from '@/hooks/use-games';
+import { useGames, type UiGameAccount } from '@/hooks/use-games';
+import type { UiGame } from '@/lib/ui-accounts';
 import {
   formatSol,
   gridDisplay,
@@ -46,7 +46,7 @@ function LobbyDisconnected() {
   }, [refetch]);
 
   const openGames = games.filter(
-    (g): g is MaybeAccount<Game> & { exists: true } =>
+    (g): g is UiGameAccount & { exists: true } =>
       'exists' in g && g.exists && g.data.status.__kind === 'AwaitingPlayerTwo'
   );
 
@@ -96,13 +96,13 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
   }, [error]);
 
   const openGames = games.filter(
-    (g): g is MaybeAccount<Game> & { exists: true } =>
+    (g): g is UiGameAccount & { exists: true } =>
       'exists' in g && g.exists && g.data.status.__kind === 'AwaitingPlayerTwo'
   );
 
   // My active games (any status, where I'm a player)
   const myGames = games.filter(
-    (g): g is MaybeAccount<Game> & { exists: true } =>
+    (g): g is UiGameAccount & { exists: true } =>
       'exists' in g &&
       g.exists &&
       (g.data.player1 === account.address ||
@@ -147,14 +147,14 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
   }, [signer, gridSize, wager, gameService, navigate]);
 
   const handleJoinGame = useCallback(
-    async (game: Game) => {
-      const gameIdStr = game.id.toString();
+    async (game: UiGame) => {
+      const gameIdStr = String(game.id);
       setJoining(gameIdStr);
       setError(null);
       try {
         await gameService.joinGame({
           player: signer,
-          gameId: game.id,
+          gameId: BigInt(game.id),
         });
 
         navigate(`/battleship/${gameIdStr}`);
@@ -259,7 +259,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
         <MyGamesList
           games={myGames}
           account={account}
-          onResume={game => navigate(`/battleship/${game.id.toString()}`)}
+          onResume={game => navigate(`/battleship/${game.id}`)}
         />
       )}
 
@@ -270,7 +270,7 @@ function LobbyConnected({ account }: { account: UiWalletAccount }) {
         account={account}
         joining={joining}
         onJoin={handleJoinGame}
-        onResume={game => navigate(`/battleship/${game.id.toString()}`)}
+        onResume={game => navigate(`/battleship/${game.id}`)}
       />
     </div>
   );
@@ -294,7 +294,7 @@ function LobbyHeader({ onBack }: { onBack: () => void }) {
   );
 }
 
-function statusLabel(status: Game['status']): { text: string; color: string } {
+function statusLabel(status: UiGame['status']): { text: string; color: string } {
   switch (status.__kind) {
     case 'AwaitingPlayerTwo':
       return { text: 'WAITING FOR OPPONENT', color: 'text-arcade-cyan' };
@@ -320,9 +320,9 @@ function MyGamesList({
   account,
   onResume,
 }: {
-  games: Array<MaybeAccount<Game> & { exists: true }>;
+  games: Array<UiGameAccount & { exists: true }>;
   account: UiWalletAccount;
-  onResume: (game: Game) => void;
+  onResume: (game: UiGame) => void;
 }) {
   return (
     <div className="mb-8">
@@ -389,13 +389,13 @@ function GameList({
   onJoin,
   onResume,
 }: {
-  games: Array<MaybeAccount<Game> & { exists: true }>;
+  games: Array<UiGameAccount & { exists: true }>;
   loading: boolean;
   onRefresh: () => void;
   account?: UiWalletAccount;
   joining?: string | null;
-  onJoin?: (game: Game) => void;
-  onResume?: (game: Game) => void;
+  onJoin?: (game: UiGame) => void;
+  onResume?: (game: UiGame) => void;
 }) {
   return (
     <>
@@ -450,10 +450,10 @@ function GameList({
                 {onJoin && account && !isOwnGame ? (
                   <button
                     onClick={() => onJoin(game)}
-                    disabled={joining === game.id.toString()}
+                    disabled={joining === String(game.id)}
                     className="border-arcade-cyan text-arcade-cyan hover:bg-arcade-cyan hover:text-arcade-bg font-pixel ml-4 border-4 px-4 py-1.5 text-[6px] uppercase transition-none active:scale-95 disabled:opacity-40"
                   >
-                    {joining === game.id.toString() ? 'JOINING...' : 'JOIN'}
+                    {joining === String(game.id) ? 'JOINING...' : 'JOIN'}
                   </button>
                 ) : isOwnGame && onResume ? (
                   <button

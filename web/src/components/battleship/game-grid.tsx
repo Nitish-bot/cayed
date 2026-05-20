@@ -11,7 +11,8 @@ export type CellState =
   | 'miss'
   | 'sunk'
   | 'preview'
-  | 'preview-invalid';
+  | 'preview-invalid'
+  | 'selected';
 
 type Props = {
   gridSize: number;
@@ -20,6 +21,7 @@ type Props = {
   misses?: CellCoord[];
   previewCells?: CellCoord[];
   previewValid?: boolean;
+  selectedCells?: CellCoord[];
   revealedShips?: ShipCoordinatesArgs[];
   interactive?: boolean;
   onCellClick?: (coord: CellCoord) => void;
@@ -35,6 +37,7 @@ const STATE_CLASSES: Record<CellState, string> = {
   sunk: 'bg-arcade-red/50 border-arcade-red/60',
   preview: 'bg-arcade-cyan/25 border-arcade-cyan/50',
   'preview-invalid': 'bg-arcade-red/25 border-arcade-red/50',
+  selected: 'bg-arcade-yellow/30 border-arcade-yellow ring-2 ring-arcade-yellow',
 };
 
 /**
@@ -48,6 +51,7 @@ export function GameGrid({
   misses = [],
   previewCells = [],
   previewValid = true,
+  selectedCells = [],
   revealedShips = [],
   interactive = false,
   onCellClick,
@@ -88,8 +92,14 @@ export function GameGrid({
       }
     }
 
+    // Attack target selection
+    for (const s of selectedCells) {
+      const key = cellKey(s.x, s.y);
+      if (!map.has(key)) map.set(key, 'selected');
+    }
+
     return map;
-  }, [ships, hits, misses, previewCells, previewValid, revealedShips]);
+  }, [ships, hits, misses, previewCells, previewValid, selectedCells, revealedShips]);
 
   const colHeaders = useMemo(
     () => Array.from({ length: gridSize }, (_, i) => String.fromCharCode(65 + i)),
@@ -130,7 +140,8 @@ export function GameGrid({
             {/* Cells */}
             {Array.from({ length: gridSize }, (_, x) => {
               const state = cellStates.get(cellKey(x, y)) ?? 'empty';
-              const isClickable = interactive && state === 'empty';
+              const isClickable =
+                interactive && (state === 'empty' || state === 'selected');
 
               return (
                 <button

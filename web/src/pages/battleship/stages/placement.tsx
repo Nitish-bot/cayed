@@ -16,6 +16,7 @@ export function PlacementStage({
   onRotate,
   onUndo,
   onDeploy,
+  deployDisabled,
 }: PlacementProps) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -91,7 +92,7 @@ export function PlacementStage({
         {allPlaced && (
           <button
             onClick={onDeploy}
-            disabled={sending}
+            disabled={sending || deployDisabled}
             className="border-arcade-green bg-arcade-green/10 text-arcade-green hover:bg-arcade-green hover:text-arcade-bg font-pixel border-4 px-8 py-3 text-[8px] uppercase transition-none active:scale-95 disabled:opacity-40"
           >
             {sending ? 'DEPLOYING...' : 'DEPLOY FLEET'}

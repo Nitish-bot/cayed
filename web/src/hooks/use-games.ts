@@ -1,14 +1,16 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { type Game } from '@client/cayed';
 import { type MaybeAccount } from '@solana/kit';
 
 import { ConnectionContext } from '@/context/connection-context';
+import { toUiGame, type UiGame } from '@/lib/ui-accounts';
 import { fetchAllGameAccounts } from '@/services/fetch-accounts';
+
+export type UiGameAccount = MaybeAccount<UiGame>;
 
 export function useGames() {
   const { connection } = useContext(ConnectionContext);
-  const [games, setGames] = useState<MaybeAccount<Game>[]>([]);
+  const [games, setGames] = useState<UiGameAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -22,7 +24,11 @@ export function useGames() {
       // Subsequent polls keep the stale list visible to avoid layout jitter.
       if (!hasFetchedOnce.current) setLoading(true);
       const decoded = await fetchAllGameAccounts(connectionRef.current);
-      setGames(decoded);
+      setGames(
+        decoded.map(g =>
+          g.exists ? { ...g, data: toUiGame(g.data) } : g
+        ) as UiGameAccount[]
+      );
       setError(null);
       hasFetchedOnce.current = true;
     } catch (err) {

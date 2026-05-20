@@ -1,11 +1,12 @@
 import type { CellCoord } from '@/lib/ships';
 
-import type { Game, PlayerBoard, ShipCoordinatesArgs } from '@client/cayed';
+import type { ShipCoordinatesArgs } from '@client/cayed';
+import type { UiGame, UiPlayerBoard } from '@/lib/ui-accounts';
 import type { Address } from '@solana/kit';
 
 /** Props shared by all stage components. */
 export type StageProps = {
-  game: Game;
+  game: UiGame;
   gameIdStr: string;
   myAddress: Address;
   isPlayer1: boolean;
@@ -35,18 +36,20 @@ export type PlacementProps = StageProps & {
   onRotate: () => void;
   onUndo: () => void;
   onDeploy: () => void;
+  deployDisabled?: boolean;
 };
 
 /** Props for the waiting-for-opponent-ships stage. */
 export type WaitingShipsProps = StageProps & {
-  myBoard: PlayerBoard | null;
+  myBoard: UiPlayerBoard | null;
 };
 
 /** Props for the battle stage. */
 export type BattleProps = StageProps & {
-  myBoard: PlayerBoard | null;
-  opponentBoard: PlayerBoard | null;
+  myBoard: UiPlayerBoard | null;
   isMyTurn: boolean | null | undefined;
+  /** True when this player has deployed and the game accepts attacks. */
+  canAttack: boolean;
   sending: boolean;
   error: string | null;
   totalMoves: number;
@@ -54,7 +57,9 @@ export type BattleProps = StageProps & {
   myBoardMisses: CellCoord[];
   attackHits: CellCoord[];
   attackMisses: CellCoord[];
-  onAttack: (coord: CellCoord) => void;
+  selectedTarget: CellCoord | null;
+  onSelectTarget: (coord: CellCoord) => void;
+  onFire: () => void;
 };
 
 /** Props for the finished stage (Completed, needs reveal). */

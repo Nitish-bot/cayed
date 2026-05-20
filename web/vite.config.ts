@@ -6,6 +6,9 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   base: '/cayed/',
+  // Load root .env (EPHEMERAL_ENDPOINT, ER_VALIDATOR) alongside web/.env (VITE_*).
+  envDir: path.resolve(__dirname, '..'),
+  envPrefix: ['VITE_', 'EPHEMERAL_', 'ER_'],
   plugins: [
     react(),
     tailwindcss(),

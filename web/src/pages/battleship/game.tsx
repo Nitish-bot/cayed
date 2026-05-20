@@ -2,8 +2,6 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 
 import {
   fetchMaybePlayerBoard,
-  type Game,
-  type PlayerBoard,
   type ShipCoordinatesArgs,
 } from '@client/cayed';
 import { address, isSome, type Address } from '@solana/kit';
@@ -33,9 +31,15 @@ import {
   LoadingStage,
   PlacementStage,
   RevealedStage,
-  WaitingShipsStage,
 } from '@/pages/battleship/stages';
 import { fetchGameAccount } from '@/services/fetch-accounts';
+import {
+  pickAuthoritativeGame,
+  toUiGame,
+  toUiPlayerBoard,
+  type UiGame,
+  type UiPlayerBoard,
+} from '@/lib/ui-accounts';
 import { deriveGamePda, derivePlayerBoardPda } from '@/services/pda';
 
 const POLL_MS = 3000;
@@ -70,15 +74,17 @@ function BattleshipGameInner({
   const { chain } = useContext(ChainContext);
   const signer = useWalletAccountTransactionSigner(account, chain);
 
-  const gameId = useMemo(() => BigInt(gameIdStr ?? '0'), [gameIdStr]);
+  const gameId = useMemo(() => Number(gameIdStr ?? '0'), [gameIdStr]);
 
   // ── State ──
-  const [game, setGame] = useState<Game | null>(null);
-  const [myBoard, setMyBoard] = useState<PlayerBoard | null>(null);
-  const [opponentBoard, setOpponentBoard] = useState<PlayerBoard | null>(null);
+  const [game, setGame] = useState<UiGame | null>(null);
+  const [myBoard, setMyBoard] = useState<UiPlayerBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [revealing, setRevealing] = useState(false);
+  /** Set after a successful hideShips tx; ER privacy blocks reading opponent boards via RPC. */
+  const [fleetDeployed, setFleetDeployed] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState<CellCoord | null>(null);
 
   // Ship placement state
   const [placedShips, setPlacedShips] = useState<ShipCoordinatesArgs[]>([]);
@@ -107,13 +113,26 @@ function BattleshipGameInner({
   const isMyTurn =
     game && ((isPlayer1 && isPlayer1Turn) || (isPlayer2 && !isPlayer1Turn));
 
+  useEffect(() => {
+    if (myBoard && myBoard.shipCoordinates.length > 0) {
+      setFleetDeployed(true);
+    }
+  }, [myBoard]);
+
   const shipSizes = useMemo(() => (game ? getShipSizes(game.gridSize) : []), [game]);
-  const myShipsPlaced = myBoard ? myBoard.shipCoordinates.length > 0 : false;
-  const opponentShipsPlaced = opponentBoard
-    ? opponentBoard.shipCoordinates.length > 0
-    : false;
+  const myShipsPlaced =
+    fleetDeployed || (myBoard ? myBoard.shipCoordinates.length > 0 : false);
   const status = game?.status.__kind;
+  const gameOver =
+    status === 'Completed' ||
+    status === 'Forfeited' ||
+    status === 'WinnerRevealed' ||
+    status === 'Cancelled';
   const isPlacing = status === 'HidingShips' && !myShipsPlaced;
+  const canAttack =
+    !gameOver &&
+    myShipsPlaced &&
+    (status === 'HidingShips' || status === 'InProgress');
 
   // ── PDA derivation ──
   const pdaRef = useRef<{
@@ -126,11 +145,12 @@ function BattleshipGameInner({
     if (!myAddress) return;
     let cancelled = false;
     async function derive() {
-      const gamePda = await deriveGamePda(gameId);
+      const gid = BigInt(gameId);
+      const gamePda = await deriveGamePda(gid);
       if (cancelled) return;
       pdaRef.current.gamePda = gamePda;
 
-      const myBoardPda = await derivePlayerBoardPda(gameId, myAddress);
+      const myBoardPda = await derivePlayerBoardPda(gid, myAddress);
       if (cancelled) return;
       pdaRef.current.myBoardPda = myBoardPda;
     }
@@ -145,7 +165,7 @@ function BattleshipGameInner({
     if (!opponentAddress) return;
     let cancelled = false;
     async function derive() {
-      const opponentBoardPda = await derivePlayerBoardPda(gameId, opponentAddress!);
+      const opponentBoardPda = await derivePlayerBoardPda(BigInt(gameId), opponentAddress!);
       if (cancelled) return;
       pdaRef.current.opponentBoardPda = opponentBoardPda;
     }
@@ -160,73 +180,63 @@ function BattleshipGameInner({
     try {
       if (!pdaRef.current.gamePda) return;
 
-      let maybeGame;
-      try {
-        maybeGame = await fetchGameAccount(gameService.devnet, pdaRef.current.gamePda);
-        if (!maybeGame.exists) {
-          // Game not found on base layer — likely delegated to ER after p2 joined
-          maybeGame = await fetchGameAccount(
-            gameService.ephemeral,
-            pdaRef.current.gamePda
-          );
-        }
-      } catch (baseErr) {
-        try {
-          maybeGame = await fetchGameAccount(
-            gameService.ephemeral,
-            pdaRef.current.gamePda
-          );
-        } catch (ephErr) {
-          console.error('Could not find game on base or ephemeral', baseErr, ephErr);
-          setError('Game not found');
-          return;
-        }
-      }
+      // During play the Game PDA lives on the ER; devnet is stale until a ship sinks.
+      await gameService.ensureAuthenticated();
+      const [ephGame, baseGame] = await Promise.all([
+        fetchGameAccount(gameService.ephemeral, pdaRef.current.gamePda),
+        fetchGameAccount(gameService.devnet, pdaRef.current.gamePda),
+      ]);
+      const maybeGame = pickAuthoritativeGame(ephGame, baseGame);
 
       if (!maybeGame?.exists) {
         setError('Game account not found — it may still be confirming');
         return;
       }
 
-      setGame(maybeGame.data);
+      setGame(toUiGame(maybeGame.data));
 
       // Board PDAs are delegated to the ER during gameplay (independently of the
       // game PDA which is only delegated after P2 joins).
-      // Try devnet first (no auth needed). If the board is delegated, devnet will
-      // either return a delegation buffer that fails to decode or return exists:false.
-      // In that case, ensure we're authed and try the ephemeral endpoint.
+      // Boards are delegated to the ER at game creation, so the ephemeral
+      // validator has the live state. Devnet holds a stale pre-delegation
+      // snapshot or an undecodable delegation buffer — try ephemeral first.
       const tryFetchBoard = async (pda: Address) => {
+        try {
+          await gameService.ensureAuthenticated();
+          const board = await fetchMaybePlayerBoard(gameService.ephemeral.rpc, pda);
+          if (board.exists) return board;
+        } catch {
+          /* auth not ready or not on ephemeral yet */
+        }
         try {
           const board = await fetchMaybePlayerBoard(gameService.devnet.rpc, pda);
           if (board.exists) return board;
         } catch {
           /* delegation buffer — can't decode on devnet */
         }
-        try {
-          await gameService.ensureAuthenticated();
-          const board = await fetchMaybePlayerBoard(gameService.ephemeral.rpc, pda);
-          if (board.exists) return board;
-        } catch {
-          /* not on ephemeral either */
-        }
         return null;
       };
 
-      // Fetch my board
+      // Fetch my board — don't overwrite optimistic ship placement with stale data
       if (pdaRef.current.myBoardPda) {
         const board = await tryFetchBoard(pdaRef.current.myBoardPda);
-        if (board?.exists) setMyBoard(board.data);
+        if (board?.exists) {
+          setMyBoard(prev => {
+            if (prev && prev.shipCoordinates.length > 0 && board.data.shipCoordinates.length === 0) {
+              return prev;
+            }
+            return toUiPlayerBoard(board.data);
+          });
+        }
       }
 
-      // Fetch opponent board
-      if (pdaRef.current.opponentBoardPda) {
-        const board = await tryFetchBoard(pdaRef.current.opponentBoardPda);
-        if (board?.exists) setOpponentBoard(board.data);
-      }
+      // Opponent PlayerBoard is private on the ER — only the owner can read it via RPC
+      // (see tests/cayed.test.ts "player sees own board but not opponent"). Attacks use
+      // public Game.moves; make_move reads opponent board inside the ER validator.
     } catch (err) {
       console.error('Fetch state error:', err);
     }
-  }, [gameService]);
+  }, [gameService, gameId]);
 
   // ── Register sign-message function with GameService (once) ──
   useEffect(() => {
@@ -303,6 +313,8 @@ function BattleshipGameInner({
         waitForPermission: true,
       });
 
+      setFleetDeployed(true);
+
       // Optimistically mark ships as placed so we exit placement phase
       // immediately, without waiting for the next poll to read from the ER.
       setMyBoard(prev => ({
@@ -312,65 +324,115 @@ function BattleshipGameInner({
         bump: prev?.bump ?? 0,
         shipCoordinates: placedShips,
         shipMasks: prev?.shipMasks ?? [],
-        allShipsMask: prev?.allShipsMask ?? 0n,
-        hitsBitmap: prev?.hitsBitmap ?? 0n,
+        allShipsMask: prev?.allShipsMask ?? 0,
+        hitsBitmap: prev?.hitsBitmap ?? 0,
         sunkMask: prev?.sunkMask ?? 0,
       }));
 
-      // Refresh state
       await fetchState();
     } catch (err) {
+      const msg = (err as Error).message ?? String(err);
       console.error('Hide ships error:', err);
-      setError(`Failed to deploy fleet: ${(err as Error).message}`);
+      if (/ships already placed|ShipsAlreadyPlaced/i.test(msg)) {
+        setFleetDeployed(true);
+        return;
+      }
+      setError(`Failed to deploy fleet: ${msg}`);
     } finally {
       setSending(false);
     }
   }, [signer, placedShips, gameId, myAddress, gameService, fetchState]);
 
-  // ── Handle attack click ──
-  const handleAttack = useCallback(
-    async (coord: CellCoord) => {
-      if (
-        !signer ||
-        !isMyTurn ||
-        sending ||
-        !opponentAddress ||
-        !pdaRef.current.gamePda ||
-        !pdaRef.current.myBoardPda ||
-        !pdaRef.current.opponentBoardPda
-      )
-        return;
+  // Clear target when it is no longer our turn
+  useEffect(() => {
+    if (!isMyTurn) setSelectedTarget(null);
+  }, [isMyTurn]);
 
+  const handleSelectTarget = useCallback(
+    (coord: CellCoord) => {
+      if (sending) return;
+      if (!canAttack || gameOver) return;
+      if (!isMyTurn) {
+        setError('Wait for your turn.');
+        return;
+      }
       const key = cellKey(coord.x, coord.y);
       if (myAttacks.has(key)) {
         setError('Already attacked this cell!');
         return;
       }
-
-      setSending(true);
       setError(null);
-      try {
-        await gameService.makeMove({
-          player: signer,
-          opponent: opponentAddress!,
-          gamePda: pdaRef.current.gamePda,
-          playerBoardPda: pdaRef.current.myBoardPda,
-          opponentBoardPda: pdaRef.current.opponentBoardPda,
-          x: coord.x,
-          y: coord.y,
-        });
-
-        // Refresh to get hit/miss result
-        await fetchState();
-      } catch (err) {
-        console.error('Attack error:', err);
-        setError(`Attack failed: ${(err as Error).message}`);
-      } finally {
-        setSending(false);
-      }
+      setSelectedTarget(coord);
     },
-    [signer, isMyTurn, sending, opponentAddress, myAttacks, gameService, fetchState]
+    [isMyTurn, sending, myAttacks, canAttack, gameOver]
   );
+
+  const handleFire = useCallback(async () => {
+    if (
+      !signer ||
+      gameOver ||
+      !isMyTurn ||
+      sending ||
+      !selectedTarget ||
+      !opponentAddress ||
+      !pdaRef.current.gamePda ||
+      !pdaRef.current.myBoardPda ||
+      !pdaRef.current.opponentBoardPda
+    )
+      return;
+
+    setSending(true);
+    setError(null);
+    try {
+      await gameService.makeMove({
+        player: signer,
+        opponent: opponentAddress,
+        gamePda: pdaRef.current.gamePda,
+        playerBoardPda: pdaRef.current.myBoardPda,
+        opponentBoardPda: pdaRef.current.opponentBoardPda,
+        x: selectedTarget.x,
+        y: selectedTarget.y,
+      });
+
+      setSelectedTarget(null);
+      await fetchState();
+    } catch (err) {
+      console.error('Attack error:', err);
+      const msg = (err as Error).message ?? String(err);
+      if (/ships not placed|ShipsNotPlaced/i.test(msg)) {
+        setError('Opponent has not finished deploying their fleet yet.');
+      } else if (/invalid turn|InvalidTurn/i.test(msg)) {
+        setError("It's not your turn — refreshing state.");
+        await fetchState();
+      } else if (/cell already attacked|CellAlreadyAttacked/i.test(msg)) {
+        setError('You already attacked that cell.');
+        await fetchState();
+      } else if (
+        /invalid game status|InvalidGameStatus|game.*completed|AllShipsSunk/i.test(
+          msg
+        )
+      ) {
+        setError('Game is over — refreshing state.');
+        await fetchState();
+      } else if (/websocket|ws |socket|subscription/i.test(msg)) {
+        setError('Network error while confirming — checking if your shot landed…');
+        await fetchState();
+      } else {
+        setError(`Attack failed: ${msg}`);
+      }
+    } finally {
+      setSending(false);
+    }
+  }, [
+    signer,
+    isMyTurn,
+    sending,
+    selectedTarget,
+    opponentAddress,
+    gameOver,
+    gameService,
+    fetchState,
+  ]);
 
   // ── Reveal winner (auto or manual) ──
   const handleRevealWinner = useCallback(async () => {
@@ -516,12 +578,9 @@ function BattleshipGameInner({
           setCurrentShipIdx(currentShipIdx - 1);
         }}
         onDeploy={handleDeployFleet}
+        deployDisabled={fleetDeployed}
       />
     );
-  }
-
-  if (status === 'HidingShips' && !opponentShipsPlaced) {
-    return <WaitingShipsStage {...stageBase} myBoard={myBoard} />;
   }
 
   if (status === 'HidingShips' || status === 'InProgress') {
@@ -529,8 +588,8 @@ function BattleshipGameInner({
       <BattleStage
         {...stageBase}
         myBoard={myBoard}
-        opponentBoard={opponentBoard}
         isMyTurn={isMyTurn}
+        canAttack={canAttack}
         sending={sending}
         error={error}
         totalMoves={totalMoves}
@@ -538,7 +597,9 @@ function BattleshipGameInner({
         myBoardMisses={myBoardMisses}
         attackHits={attackHits}
         attackMisses={attackMisses}
-        onAttack={handleAttack}
+        selectedTarget={selectedTarget}
+        onSelectTarget={handleSelectTarget}
+        onFire={handleFire}
       />
     );
   }

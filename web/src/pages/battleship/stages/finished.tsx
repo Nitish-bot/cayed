@@ -70,7 +70,7 @@ export function FinishedStage({
       )}
 
       {/* Wager info */}
-      {game.wager > 0n && (
+      {game.wager > 0 && (
         <div className="mb-6 text-center">
           <p className="text-arcade-muted font-pixel text-[7px]">
             WAGER: <span className="text-arcade-yellow">{formatSol(game.wager)} SOL</span>
