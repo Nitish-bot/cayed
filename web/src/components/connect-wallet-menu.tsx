@@ -111,7 +111,7 @@ export function ConnectWalletMenu() {
       >
         {selectedAccount
           ? `${selectedAccount.address.slice(0, 4)}..${selectedAccount.address.slice(-4)}`
-          : 'INSERT COIN'}
+          : 'connect wallet'}
       </button>
 
       {isOpen && (

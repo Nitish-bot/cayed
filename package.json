@@ -13,8 +13,10 @@
     "detest": "bun test --timeout 1000000 tests/cayed.test.ts"
   },
   "dependencies": {
-    "@magicblock-labs/ephemeral-rollups-kit": "^0.8.5",
+    "@coral-xyz/anchor": "0.32.1",
+    "@magicblock-labs/ephemeral-rollups-sdk": "0.8.5",
     "@solana/kit": "^6.1.0",
+    "@solana/web3.js": "^1.98.4",
     "solana-kite": "^3.2.0",
     "tweetnacl": "^1.0.3"
   },

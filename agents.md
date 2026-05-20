@@ -1,647 +1,341 @@
 # Cayed Agent Guide
 
-Purpose: This file is a high-context architecture guide for coding agents working in this repo.
+> High-context guide for agents working in this repo. Read `CONTEXT.md` first for domain glossary, then this file for architecture and constraints.
 
-Primary goal:
-1. Give enough architectural context that agents can act with minimal repo re-discovery.
-2. Reduce token usage by centralizing decisions, constraints, and tradeoffs.
-3. Keep implementation aligned with the 28-day target: `5+ games + simplified prediction market` on a modular single core program.
+---
 
-Status note:
-1. Cayed started as Battleship-first.
-2. The direction is now an on-chain consumer arcade.
-3. Route system should use `/games/*` for all game and `/market` for markets.
+## 1. What Cayed Currently Is
 
-## 1. Project Thesis
+Cayed is a **Battleship game on Solana** using MagicBlock Ephemeral Rollups for private ship placement. One Anchor program, one React frontend. No multi-game support yet. No prediction market yet.
 
-Cayed is positioning as a consumer on-chain arcade, not a DeFi terminal.
+**Core flow:**
+1. Player 1 creates a game with grid size and wager → deposits SOL into vault
+2. Player 2 joins → deposits matching wager
+3. Both players place ships (hidden via ER delegation)
+4. Players alternate attacks until all ships on one side are sunk
+5. `reveal_winner` declares winner, clears permissions, commits state to base layer
+6. **(GAP) Winner should be paid from vault — not yet implemented**
 
-Key UX thesis:
-1. Users should understand game loops in seconds.
-2. Wager flow should feel simple and transparent.
-3. Settlement should be trustless and verifiable.
-4. Prediction is a lightweight spectator/player layer, not a full exchange.
+---
 
-Core technology thesis:
-1. One modular Anchor program gives the best sprint velocity for a duo team.
-2. MagicBlock ER is used for private state and responsive gameplay.
-3. Game-specific logic lives in adapters/modules, while custody/settlement/privacy remain core.
+## 2. Current Architecture
 
-## 2. North-Star Deliverables (Day 28)
+### 2.1 On-Chain (`programs/cayed/`)
 
-Must-have outcomes:
-1. 5+ games with full create/join/play/settle lifecycle.
-2. Simplified prediction market tied to game outcomes.
-3. Frontend routes and codebase organized under `/games/*`.
-4. Reusable architecture for adding new games without reworking core.
+**Program ID**: `6xLHbAHw2ibrmdVEPHm7jDkDmghw3fp3gUCBy511DMKV` (devnet)
 
-Definition of done for each game:
-1. On-chain flow works: create session, join session, play actions, settle session.
-2. Frontend flow works under `/games/<slug>` and `/games/<slug>/<sessionId>`.
-3. Outcome maps to a `result_code` consumed by market settlement.
-4. Error states are user-readable and mapped from program errors.
+**Instructions** (8 total):
 
-## 3. Architecture Decision Record (ADR)
+| Instruction | Purpose |
+|-------------|---------|
+| `init_config` | Initialize protocol params (authority, vault, max_grid_size, fee) |
+| `create_game` | Player 1 creates game + deposits wager |
+| `join_game` | Player 2 joins + deposits wager |
+| `hide_ships` | Player places ships on their private board |
+| `make_move` | Attack a cell on opponent's board |
+| `reveal_winner` | Declare winner, clear permissions, commit/undelegate |
+| `create_permission` | ER access control setup |
+| `delegate_pda` | Move account to ER validator |
 
-Decision:
-1. Use a single modular core program for this sprint.
+**State accounts:**
+- `Config` — protocol-wide params
+- `Vault` — wager custody
+- `Game` — public session state
+- `PlayerBoard` — private per-player state (ships, hits, sunk tracking)
 
-Alternatives considered:
-1. One program per game.
-2. Core program plus separate market program now.
-3. Keep current monolithic Battleship-centric pattern.
+**Key on-chain design:**
+- `u64` bitmaps for O(1) hit detection and sunk checking
+- Turn order derived from move count parity (no external oracle)
+- Ship placement validated for bounds, linearity, and overlap — **but NOT for size** (see Gaps)
 
-Why single modular core wins now:
-1. Fastest execution path for a small team.
-2. One deploy path, one IDL generation path, one client package.
-3. Shared fee/wager/privacy logic avoids duplicated security-critical code.
-4. Lowest frontend integration overhead in a 28-day window.
+### 2.2 Frontend (`web/`)
 
-Known cost of this decision:
-1. Shared upgrade blast radius.
-2. Larger binary and IDL over time.
-3. Greater need for internal module boundaries and tests.
+**Tech**: React 19, Vite 7, TypeScript, Tailwind v4, React Aria Components, React Router 7
 
-Risk controls:
-1. Hard boundaries in folder/module layout.
-2. Per-game adapter test suites.
-3. Feature flags in game registry.
-4. Freeze schema boundaries after week 1.
-
-## 4. Design Principles (Non-Negotiable)
-
-1. Keep state and instruction naming game-agnostic in core.
-2. Keep game rule logic isolated in `games/*` adapters.
-3. Keep ER permission/delegation logic in core only.
-4. Keep generated client usage inside service layers, not pages/components.
-5. Add games by composing contracts, not by branching core flow.
-6. Avoid frontend route hardcoding; use registry-driven mounting.
-
-## 5. Current Coupling and What Must Change
-
-Current coupling hotspots:
-1. `programs/cayed/src/state/game.rs` uses battleship-specific fields.
-2. `programs/cayed/src/instructions/hide_ships.rs` and `make_move.rs` embed battleship rules.
-3. `web/src/App.tsx` and `web/src/services/game-service.ts` are battleship-oriented.
-
-Refactor target:
-1. Replace `Game` concept with generic `Session`.
-2. Replace `PlayerBoard` with generic delegated `PlayerState` blob.
-3. Replace battleship action instructions with generic `submit_action` and adapter dispatch.
-4. Move UI and service layering to `/games/*` modules.
-
-## 6. On-Chain Architecture (Target)
-
-### 6.1 Module Layout
-
-Recommended shape in `programs/cayed/src/`:
-
-```text
-src/
-  lib.rs
-  errors.rs
-  instructions/
-    core/
-      init_config.rs
-      create_session.rs
-      join_session.rs
-      submit_action.rs
-      settle_session.rs
-      create_permission.rs
-      delegate_pda.rs
-    market/
-      create_market.rs
-      place_bet.rs
-      resolve_market.rs
-      claim_payout.rs
-    mod.rs
-  state/
-    config.rs
-    vault.rs
-    session.rs
-    player_state.rs
-    market.rs
-    bet_position.rs
-    mod.rs
-  games/
-    mod.rs
-    adapter.rs
-    battleship.rs
-    coinflip_duel.rs
-    high_card.rs
-    tic_tac_toe.rs
-    dice_hi_lo.rs
+**Provider chain** (dependency injection):
+```
+ThemeProvider → ChainContextProvider → SelectedWalletAccountContextProvider
+  → ConnectionContextProvider → GameServiceProvider → App
 ```
 
-Why this split:
-1. `instructions/core` = shared lifecycle/custody/security logic.
-2. `instructions/market` = simplified market flow without contaminating game core.
-3. `games/*` = rule engines per game.
-4. `state/*` = stable account model boundaries.
+**Service layer:**
+- `GameService` — all program interactions, dual connection (devnet + ER), auth token management, instruction bundling
+- `pda.ts` — centralized PDA derivation
+- `fetch-accounts.ts` — account fetching with ER fallback
 
-Pros:
-1. Easier ownership of concerns.
-2. Easier code reviews and regression analysis.
-3. Easier extension to new games.
+**Pages:**
+- `/` — home/arcade launcher
+- `/battleship` — lobby (create/join)
+- `/battleship/:gameId` — active game (stage router)
 
-Cons:
-1. More files and plumbing initially.
-2. Requires discipline in where logic lives.
+**Game stages** (rendered by `game.tsx` based on `GameStatus`):
+`Loading → AwaitingOpponent → Placement → WaitingShips → Battle → Finished → Revealed`
 
-### 6.2 Core State Model
+**Client generation:**
+```
+anchor build → target/idl/cayed.json → bun createCodamaClient.ts → web/client/cayed/
+```
+The `web/client/` directory is gitignored and must be regenerated after program changes.
 
-#### `Session`
+---
 
-Suggested fields:
+## 3. Known Gaps (Honest List)
 
+These are real problems in the current MVP. Do not paper over them.
+
+### 3.1 No Payout in `reveal_winner`
+
+**Severity: 🔴 Critical**
+
+`create_game` and `join_game` deposit wagers into the `Vault` PDA via CPI transfer. `reveal_winner` sets the winner in `Game.status` but **never transfers the accumulated wagers out**.
+
+**Fix**: Add payout logic to `reveal_winner`:
 ```rust
-pub struct Session {
-    pub id: u64,
-    pub game_type: GameType,
-    pub player_1: Pubkey,
-    pub player_2: Option<Pubkey>,
-    pub wager_lamports: u64,
-    pub next_actor: Pubkey,
-    pub move_count: u16,
-    pub status: SessionStatus,
-    pub winner: Option<Pubkey>,
-    pub result_code: Option<u8>,
-    pub bump: u8,
-}
+let total_pot = game.wager * 2;
+let fee_amount = (total_pot * config.fee as u64) / 10_000;
+let payout = total_pot - fee_amount;
+// Transfer payout to winner
+// Transfer fee to config.authority
 ```
 
-Why this shape:
-1. Works for turn-based and instant-settlement games.
-2. `result_code` unifies game settlement with market settlement.
-3. `game_type` is the dispatch anchor.
+### 3.2 No Ship Size Enforcement in Program
 
-Pros:
-1. Stable generic lifecycle.
-2. Easy market linkage.
-3. Easy frontend representation.
+**Severity: 🔴 Critical**
 
-Cons:
-1. Some games need richer metadata in private state blobs.
-2. Validation complexity moves into adapters.
+`hide_ships` validates count, bounds, linearity, and overlap — but a "ship" can be 1 cell or the entire board. The frontend's `getShipSizes()` suggests sizes like `[5,4,3,2,1]` for a 10×5 grid, but the program ignores this.
 
-#### `PlayerState`
+**Attack vector**: A player can submit 5 single-cell ships via direct transaction, making the game trivial to win.
 
-Suggested fields:
+**Fix**: Add a `required_ship_lengths` parameter (or hardcode per grid size) and validate each ship's cell count in `hide_ships`.
 
-```rust
-pub struct PlayerState {
-    pub session_id: u64,
-    pub player: Pubkey,
-    pub game_type: GameType,
-    pub state_version: u16,
-    pub state_blob: Vec<u8>,
-    pub bump: u8,
-}
+### 3.3 No Timeouts / Forfeit Mechanism
+
+**Severity: 🟡 Acceptable for MVP**
+
+If a player creates a game and no one joins, or if a player stops making moves, wagers lock indefinitely. The `Forfeited` and `Cancelled` statuses exist but have no instruction to set them.
+
+**Fix (post-MVP)**: Add `claim_timeout` instruction with phase-based deadlines (e.g., 24h to join, 10m per move).
+
+### 3.4 Zero Error-Path Tests
+
+**Severity: 🟡 High**
+
+The sole test (`tests/cayed.test.ts`) tests the happy path only. None of the 22 `CayedError` variants are exercised. This means incorrect ship placement, out-of-bounds attacks, duplicate attacks, and invalid turns are all untested.
+
+**Fix**: Add tests for each error variant. See Testing Strategy below.
+
+### 3.5 Monolithic Frontend Component
+
+**Severity: 🟡 Architectural debt**
+
+`web/src/pages/battleship/game.tsx` is 571 lines with PDA derivation, state polling, placement logic, attack handling, winner reveal, keyboard shortcuts, error dismissal, and stage rendering all in one file.
+
+**Fix (post-MVP)**: Extract into hooks:
+- `useBattleshipPdas(gameId)` — PDA derivation
+- `useBattleshipState(gameService, pdas)` — polling + account fetching
+- `useShipPlacement(gridSize, shipSizes)` — placement state machine
+- `useBattleshipGame(game, myBoard, opponentBoard)` — turn logic, attacks
+
+Leave in place for now — the user has explicitly deferred this.
+
+### 3.6 No CI Test Step
+
+**Severity: 🟡 Medium**
+
+`.github/workflows/deploy.yml` builds and deploys but never runs tests. Broken code can reach production.
+
+**Fix**: Add `bun test` step before build. May need to adjust for validator availability in CI.
+
+### 3.7 `skipPreflight: true` in Tests
+
+**Severity: 🟡 Medium**
+
+The test helper uses `skipPreflight: true` on every transaction, bypassing simulation. This means simulation errors (e.g., account not found, insufficient funds) are not caught.
+
+**Fix**: Remove `skipPreflight` or add a variant that uses it conditionally.
+
+---
+
+## 4. Testing Reality
+
+### What Exists
+
+**One file**: `tests/cayed.test.ts` (504 lines)
+- Full happy-path E2E: init config → create game → join → hide ships → verify privacy → play full game → reveal winner
+- Uses real `mb-test-validator` + `ephemeral-validator`
+- Tests ER privacy invariant (player can't read opponent board)
+- Custom `sendAndConfirmER` helper with retry logic
+
+### What's Missing
+
+| Layer | Status | Needed |
+|-------|--------|--------|
+| Rust unit tests | ❌ None | `#[cfg(test)]` modules for bitmap math, turn logic, sunk detection |
+| Error path tests | ❌ None | One test per `CayedError` variant |
+| Frontend unit tests | ❌ None | Component tests for stages, placement validation |
+| Integration tests (per-flow) | ❌ None | Separate tests for: create+join, hide ships, move mechanics, reveal |
+| CI test step | ❌ None | Run tests in GitHub Actions before deploy |
+
+### Recommended Test Strategy
+
+**Phase 1 (now — fixes the critical gaps):**
+1. Add payout test to existing E2E (verify vault balance decreases, winner balance increases)
+2. Add ship size validation test (verify `hide_ships` rejects wrong sizes)
+3. Add error-path matrix: `InvalidTurn`, `CellAlreadyAttacked`, `AttackOutOfBounds`, `ShipOverlap`, `InvalidShipPlacement`, `ShipsAlreadyPlaced`
+
+**Phase 2 (next):**
+1. Add Rust unit tests: `cell_bit()`, `all_ships_sunk()`, `PlayerBoard` bitmap operations
+2. Split monolithic test into focused files: `test_config.ts`, `test_game_flow.ts`, `test_gameplay.ts`, `test_reveal.ts`
+3. Add frontend tests: placement validation, stage rendering
+
+**Phase 3 (later):**
+1. Add timeout/forfeit tests
+2. Add fee calculation tests
+3. Add edge cases: zero-wager game, max grid size, minimum grid size
+
+---
+
+## 5. Anti-Patterns for This Codebase
+
+### 5.1 Don't Add Multi-Game Abstractions Yet
+
+The codebase is Battleship-only. Do NOT introduce:
+- `Session` / `PlayerState` generic accounts
+- `GameAdapter` trait or dispatch pattern
+- `GameType` enum
+- `/games/*` directory structure
+- `registry.ts` route system
+- Prediction market accounts or instructions
+
+These are planned for the future but will complicate the current MVP. When the time comes, refactor in a dedicated branch.
+
+### 5.2 Don't Call Generated Builders from Components
+
+Always go through `GameService`. The Codama-generated client lives in `web/client/cayed/` and its API can change when the program changes. `GameService` is the stable abstraction layer.
+
+### 5.3 Don't Add Game-Specific Fields to Shared Accounts
+
+If you need Battleship-specific state, put it in `PlayerBoard` or `Game`. Don't create new shared accounts that assume future games.
+
+### 5.4 Don't Bypass Frontend Validation
+
+Any validation the frontend does (ship size, placement bounds) must also be enforced on-chain. A player can always craft a transaction directly.
+
+### 5.5 Don't Use `skipPreflight` in Production Code
+
+The test helper uses it for local validator quirks. Never use it in actual user-facing transaction code.
+
+### 5.6 Don't Poll for Real-Time Updates
+
+Current polling is 3s (`POLL_MS`). This is acceptable for MVP but should be replaced with websocket subscriptions when scaling.
+
+---
+
+## 6. File Priority Map
+
+When touching this codebase, these files matter most (highest to lowest):
+
+### On-Chain (Rust)
+
+| Priority | File | Why |
+|----------|------|-----|
+| 🔴 | `programs/cayed/src/instructions/reveal_winner.rs` | Missing payout — critical gap |
+| 🔴 | `programs/cayed/src/instructions/hide_ships.rs` | Missing ship size validation |
+| 🔴 | `programs/cayed/src/instructions/make_move.rs` | Core game logic, turn order, hit detection |
+| 🟡 | `programs/cayed/src/state/player_board.rs` | Bitmap math, sunk detection |
+| 🟡 | `programs/cayed/src/state/game.rs` | Game status, move history |
+| 🟡 | `programs/cayed/src/instructions/create_game.rs` | Wager deposit, game init |
+| 🟡 | `programs/cayed/src/instructions/join_game.rs` | P2 join, duplicate deposit logic |
+| 🟢 | `programs/cayed/src/instructions/init_config.rs` | Protocol setup |
+| 🟢 | `programs/cayed/src/instructions/create_permission.rs` | ER plumbing |
+| 🟢 | `programs/cayed/src/instructions/delegate_pda.rs` | ER plumbing |
+
+### Frontend (TypeScript/React)
+
+| Priority | File | Why |
+|----------|------|-----|
+| 🔴 | `web/src/services/game-service.ts` | All program interactions, auth, bundling |
+| 🟡 | `web/src/pages/battleship/game.tsx` | God component — all game logic |
+| 🟡 | `web/src/pages/battleship/lobby.tsx` | Create/join flows |
+| 🟡 | `web/src/lib/ships.ts` | Placement validation (frontend side) |
+| 🟢 | `web/src/services/pda.ts` | PDA derivation |
+| 🟢 | `web/src/services/fetch-accounts.ts` | Account fetching with ER fallback |
+| 🟢 | `web/src/App.tsx` | Router (hardcoded Battleship routes) |
+| 🟢 | `web/src/components/battleship/game-grid.tsx` | Grid rendering |
+
+### Tests
+
+| Priority | File | Why |
+|----------|------|-----|
+| 🔴 | `tests/cayed.test.ts` | Only test file — needs error paths + payout test |
+| 🟡 | `test.sh` | Test runner script |
+
+### Config/Build
+
+| Priority | File | Why |
+|----------|------|-----|
+| 🟡 | `.github/workflows/deploy.yml` | Missing test step |
+| 🟢 | `Anchor.toml` | Program config |
+| 🟢 | `createCodamaClient.ts` | Client code generation |
+
+---
+
+## 7. Decision Log
+
+Actual decisions made for this codebase (not aspirational):
+
+| # | Decision | Date | Rationale |
+|---|----------|------|-----------|
+| 1 | Single Anchor program | Initial | Fastest path for a small team |
+| 2 | MagicBlock ER for private state | Initial | Required for hidden ship placements |
+| 3 | Bitmap-based hit tracking | Initial | O(1) operations, fits in single u64 |
+| 4 | Turn parity + game_id for first move | Initial | No external oracle needed |
+| 5 | `u64` bitmap with grid_size ≤ 10 | Initial | Max 50 cells fits in u64 |
+| 6 | Zero-wager games allowed | Initial | Free play mode |
+| 7 | Polling (3s) instead of websockets | Initial | Simpler MVP, deferred real-time |
+| 8 | No timeouts for MVP | May 2026 | Complexity deferred, indefinite locking accepted |
+| 9 | No ship size enforcement (yet) | May 2026 | Frontend guides sizes, program trusts input |
+| 10 | God component accepted for velocity | May 2026 | Extract later when adding features |
+
+---
+
+## 8. Quick Reference
+
+### Run Tests
+```bash
+./test.sh
+# or
+cd web && bun test
 ```
 
-Why blob-based private state:
-1. Supports hidden info games (Battleship, card games).
-2. Keeps core accounts stable while game internals evolve.
-3. Enables adapter-local schema evolution (`state_version`).
-
-Pros:
-1. Very flexible.
-2. Prevents core account explosion.
-
-Cons:
-1. Requires strict decode guards.
-2. Corruption risk if versioning is ignored.
-
-#### `Market` + `BetPosition`
-
-Simplified market model:
-1. One market references one session.
-2. Two outcomes only.
-3. Bet positions are per bettor and side.
-
-Pros:
-1. Minimal implementation risk.
-2. Easy UX and settlement.
-
-Cons:
-1. Not as expressive as order-book/AMM systems.
-2. Limited market design in v1.
-
-### 6.3 Game Adapter Contract
-
-Core adapter interface:
-
-```rust
-pub trait GameAdapter {
-    fn init_state(params: &[u8]) -> Result<Vec<u8>>;
-    fn validate_action(state: &[u8], action: &[u8], actor: Pubkey) -> Result<()>;
-    fn apply_action(state: &[u8], action: &[u8], actor: Pubkey) -> Result<ApplyResult>;
-    fn is_terminal(state: &[u8]) -> Result<bool>;
-    fn resolve_outcome(state: &[u8]) -> Result<Outcome>;
-}
+### Generate Client
+```bash
+anchor build
+bun createCodamaClient.ts
 ```
 
-Dispatch style:
-
-```rust
-match session.game_type {
-    GameType::Battleship => battleship::apply(...),
-    GameType::CoinflipDuel => coinflip_duel::apply(...),
-    GameType::HighCard => high_card::apply(...),
-    GameType::TicTacToe => tic_tac_toe::apply(...),
-    GameType::DiceHiLo => dice_hi_lo::apply(...),
-}
+### Dev Frontend
+```bash
+cd web && bun run dev
 ```
 
-Pros:
-1. Compile-time deterministic module selection.
-2. Keeps instruction surface stable while adding games.
-3. Easy to test per adapter.
-
-Cons:
-1. Program grows as game count grows.
-2. Care needed to avoid adapter side effects bleeding into core.
-
-### 6.4 Instruction Surface
-
-Core instructions:
-1. `init_config(max_state_bytes, fee_bps, min_wager)`
-2. `create_session(id, game_type, wager, game_init_params)`
-3. `join_session()`
-4. `submit_action(action_blob)`
-5. `settle_session()`
-6. `create_permission(account_type, members)`
-7. `delegate_pda(account_type)`
-
-Market instructions:
-1. `create_market(market_id, session_id, outcome_a_code, outcome_b_code)`
-2. `place_bet(side_code, amount)`
-3. `resolve_market()`
-4. `claim_payout()`
-
-Design note:
-1. Keep action payloads compact.
-2. Keep serialization contract stable and versioned.
-3. Prefer error enums that are adapter-prefixed but routed through common user-facing mapping.
-
-### 6.5 PDA Strategy
-
-Stable seeds:
-1. `Config`: `["config"]`
-2. `Vault`: `["vault"]`
-3. `Session`: `["session", id.to_le_bytes()]`
-4. `PlayerState`: `["player_state", session_id.to_le_bytes(), player.as_ref()]`
-5. `Market`: `["market", market_id.to_le_bytes()]`
-6. `BetPosition`: `["bet", market_id.to_le_bytes(), bettor.as_ref(), side_code]`
-
-Why this seed plan:
-1. Human-readable and debuggable.
-2. Predictable client derivation.
-3. Works cleanly for account indexing.
-
-## 7. MagicBlock ER Strategy
-
-Core rule:
-1. ER-related account privacy and delegation belong to core instructions.
-2. Game adapters do not perform permission/delegation orchestration.
-
-Session lifecycle with ER:
-1. Create/join on base layer and fund vault.
-2. Create permissions and delegate private state accounts.
-3. Run hidden or rapid gameplay actions on ER.
-4. Settle by resolving outcome, clearing permissions, and commit/undelegate.
-
-Pros:
-1. Uniform privacy/security path across games.
-2. Less risk of per-game ER misconfiguration.
-
-Cons:
-1. Requires robust shared utilities and tests.
-2. ER integration bugs can affect all games.
-
-Mitigation:
-1. Keep ER logic isolated in `instructions/core`.
-2. Add ER privacy regression tests per game.
-
-## 8. Frontend Architecture (`/games/*`)
-
-### 8.1 Folder Plan
-
-```text
-web/src/
-  core/
-    context/
-    providers/
-    rpc/
-    wallet/
-  games/
-    registry.ts
-    battleship/
-      index.ts
-      routes.tsx
-      service.ts
-      hooks/
-      pages/
-      components/
-      types.ts
-    coinflip-duel/
-    high-card/
-    tic-tac-toe/
-    dice-hi-lo/
-    prediction/
-  shared/
-    components/
-    hooks/
-    tx/
-    account/
-  App.tsx
-  main.tsx
+### Deploy
+```bash
+# CI handles: anchor build → gen client → vite build → gh-pages
 ```
 
-Why this split:
-1. `core` for platform concerns.
-2. `games/<slug>` for isolated game modules.
-3. `shared` for reusable UI and data hooks.
+---
 
-Pros:
-1. New game onboarding is predictable.
-2. Router and app shell remain stable.
-3. Easier lazy-loading and feature flags.
+## 9. What NOT in This File
 
-Cons:
-1. Requires discipline to avoid leaking game logic into `core`.
-2. Some duplication acceptable for speed.
+The following have been **removed** from this guide because they describe code that does not exist:
 
-### 8.2 Route Contract
+- ❌ `Session` / `PlayerState` generic accounts
+- ❌ `GameAdapter` trait or `games/` module
+- ❌ `submit_action` / `settle_session` instructions
+- ❌ Prediction market (`Market`, `BetPosition`, `result_code`)
+- ❌ 5-game catalog and 28-day roadmap
+- ❌ `/games/*` registry-driven routing
+- ❌ `GameType` enum
 
-Required route shape:
-1. `/` arcade launcher.
-2. `/games/:slug` lobby/detail entrypoint.
-3. `/games/:slug/:sessionId` active session page.
-4. `/games/prediction` market flows.
-
-Rules:
-1. No hardcoded battleship routes in app shell.
-2. Every game route must be registry-generated.
-
-### 8.3 Registry Contract
-
-`web/src/games/registry.ts`:
-
-```ts
-type GameDefinition = {
-  slug: string;
-  title: string;
-  isEnabled: boolean;
-  serviceFactory: () => GameService;
-  routes: React.ReactNode;
-  marketOutcomeMap: Record<string, number>;
-};
-```
-
-Pros:
-1. Feature-flag rollout control.
-2. Launcher UI generated from metadata.
-3. No repeated router edits.
-
-Cons:
-1. Bad registry metadata can break route discovery.
-2. Need simple runtime validation.
-
-### 8.4 Service Layer Strategy
-
-Split existing `web/src/services/game-service.ts` into:
-1. `web/src/core/rpc/core-session-service.ts`.
-2. `web/src/games/<slug>/service.ts`.
-
-Core service owns:
-1. connection selection (devnet vs ER).
-2. tx assembly/send lifecycle.
-3. auth token management.
-4. common PDA derivation helpers.
-
-Game service owns:
-1. game action encoding/decoding.
-2. game state view-model mapping.
-3. game-specific command methods.
-
-Anti-pattern to avoid:
-1. Calling generated instruction builders directly from page components.
-
-## 9. Prediction Market in Same Program Scope
-
-Scope constraints for v1 market:
-1. Two outcomes only.
-2. Session-linked only.
-3. No orderbook and no complex market making.
-4. Payout based only on `Session.result_code`.
-
-Pros:
-1. Deliverable in sprint timeline.
-2. Clear user understanding.
-3. Lower audit and implementation risk.
-
-Cons:
-1. Limited strategy expressiveness.
-2. Not suitable for advanced traders.
-
-Reason this is acceptable now:
-1. Cayed is consumer-first game platform.
-2. Prediction layer is augmentative, not primary product.
-
-## 10. Testing and Quality Strategy
-
-Test layers:
-1. Core lifecycle tests.
-2. Per-game adapter tests.
-3. ER privacy tests.
-4. Market tests.
-5. Cross-game smoke test.
-
-Proposed layout:
-
-```text
-tests/
-  harness/
-    validator.ts
-    fixtures.ts
-    tx.ts
-  games/
-    battleship.test.ts
-    coinflip-duel.test.ts
-    high-card.test.ts
-    tic-tac-toe.test.ts
-    dice-hi-lo.test.ts
-  market/
-    prediction.test.ts
-  smoke/
-    full-arcade.test.ts
-```
-
-Why this matters:
-1. Guards against regression while adding games quickly.
-2. Keeps confidence high with shared-core architecture.
-3. Localizes failures to game adapters when possible.
-
-## 11. 28-Day Delivery Plan (Execution-Centric)
-
-Week 1:
-1. Introduce generic state (`Session`, `PlayerState`) and adapter interface.
-2. Keep Battleship functionality intact via adapter wrapper.
-3. Freeze initial schema boundaries.
-
-Week 2:
-1. Add `coinflip-duel` and `high-card` adapters.
-2. Move frontend to `/games/*` registry and routes.
-3. Split service layers.
-
-Week 3:
-1. Add `tic-tac-toe` and `dice-hi-lo` adapters.
-2. Add shared frontend hooks/components.
-3. Expand E2E matrix and ER regressions.
-
-Week 4:
-1. Add simplified market accounts/instructions.
-2. Add `/games/prediction` UI flow.
-3. Stabilize, polish, and demo-hardening.
-
-## 12. Game Catalog and Rationale
-
-Recommended lineup:
-1. `battleship`: flagship hidden-state game and ER showcase.
-2. `coinflip-duel`: fastest low-risk game for throughput.
-3. `high-card`: simple PvP with strong wagering intuition.
-4. `tic-tac-toe`: familiar turn-based benchmark.
-5. `dice-hi-lo`: quick risk/reward loop and replayability.
-
-Why this set:
-1. Mixes hidden-state, turn-based, and instant games.
-2. Good demo coverage for architecture flexibility.
-3. Balanced implementation complexity for a duo.
-
-## 13. Error Design and UX Mapping
-
-Guideline:
-1. Keep adapter errors precise, but map to concise user language.
-2. Include shared errors for lifecycle and wagering constraints.
-
-Examples of user-facing mapping categories:
-1. session state invalid.
-2. unauthorized actor.
-3. invalid action format.
-4. not your turn.
-5. market not resolvable.
-
-## 14. Performance and Compute Notes
-
-Hot paths likely to need optimization:
-1. `submit_action` dispatch and state decode/encode.
-2. settle path with ER commit/undelegate.
-3. market payout scans.
-
-Controls:
-1. Keep blobs compact.
-2. Avoid unnecessary vector growth.
-3. Profile adapter-specific CU costs.
-4. Prefer fixed-size or bounded structures where feasible.
-
-## 15. Security and Integrity Notes
-
-Key concerns:
-1. Blob decode safety and version checks.
-2. Outcome tampering between session settle and market resolve.
-3. Unauthorized private-state reads during active sessions.
-4. Re-entrancy-like sequencing mistakes in settlement/claim logic.
-
-Controls:
-1. strict state versioning.
-2. deterministic result-code mapping.
-3. enforce session terminal status before market resolve.
-4. comprehensive negative-path tests.
-
-## 16. Agent Workflow Guidance (Token-Efficient)
-
-When an agent starts work:
-1. Read this file first.
-2. Confirm target is still single-program modular architecture.
-3. Verify routes are `/games/*`.
-4. Check for latest schema names in state/instructions before coding.
-
-When proposing changes:
-1. Preserve core-vs-game-vs-market boundaries.
-2. Avoid introducing game-specific fields into core accounts.
-3. Keep generated client usage inside service wrappers.
-4. Add tests in the right layer.
-
-When reviewing PRs:
-1. Ask whether change belongs in core or adapter.
-2. Check if new game can be added without changing core lifecycle logic.
-3. Check if frontend uses registry rather than route hardcoding.
-4. Check if result_code mapping remains stable for market settlement.
-
-## 17. Anti-Patterns to Avoid
-
-1. Adding new game-specific fields directly to `Session` for one game only.
-2. Hardcoding game routes in `App.tsx` repeatedly.
-3. Embedding Codama generated builders inside UI pages.
-4. Implementing ER permission logic separately per game module.
-5. Expanding market scope to orderbook/AMM in this sprint.
-
-## 18. Immediate Refactor Checklist
-
-On-chain:
-1. Add `GameType` enum and `Session` account.
-2. Add `PlayerState` and migrate from board-specific assumptions.
-3. Add adapter trait and Battleship adapter implementation.
-4. Introduce `submit_action` and `settle_session`.
-5. Add market accounts and instructions with simplified constraints.
-
-Frontend:
-1. Add `web/src/games/registry.ts`.
-2. Migrate routing to `/games/:slug` and `/games/:slug/:sessionId`.
-3. Move battleship code under `web/src/games/battleship`.
-4. Create game scaffolds for the other four games.
-5. Add `/games/prediction` flow.
-
-Testing:
-1. Split monolithic tests into harness + per-game + market + smoke.
-2. Add ER privacy regressions for each hidden/private-state game.
-
-## 19. File-Level Priority Map
-
-Highest priority on-chain files:
-1. `programs/cayed/src/lib.rs`
-2. `programs/cayed/src/state/game.rs` to be replaced by `session.rs`
-3. `programs/cayed/src/state/player_board.rs` to evolve toward `player_state.rs`
-4. `programs/cayed/src/instructions/make_move.rs` to evolve toward `submit_action.rs`
-5. `programs/cayed/src/instructions/reveal_winner.rs` to evolve toward `settle_session.rs`
-
-Highest priority frontend files:
-1. `web/src/App.tsx`
-2. `web/src/main.tsx`
-3. `web/src/services/game-service.ts`
-4. `web/src/pages/battleship/*` to migrate under `web/src/games/battleship/*`
-5. `web/src/games/registry.ts` new
-
-## 20. Known Open Questions (Track Explicitly)
-
-1. Which simplified payout model first: pari-mutuel-lite or fixed-odds?
-2. Should single-player games be allowed in v1 market, or only PvP sessions?
-3. What is the exact maximum `state_blob` size per game to cap compute/storage?
-4. Which game-specific fields belong in `Session` versus encoded state blob?
-
-If unresolved, default choices:
-1. pari-mutuel-lite for simple fairness and no external odds dependency.
-2. market enabled first for PvP sessions only.
-3. conservative capped blob size with adapter-level validation.
-4. keep `Session` minimal and adapter state in blob.
-
-## 21. Positioning Reminder
-
-Cayed should feel like an arcade first:
-1. fast loops.
-2. clean wager UX.
-3. trustless settlement.
-4. prediction as optional enhancement.
-
-If an implementation choice improves technical purity but hurts this consumer feel or timeline, prefer the pragmatic option that ships within 28 days.
+When the codebase actually contains these, this guide will be updated.
