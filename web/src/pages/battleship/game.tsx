@@ -1,9 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  fetchMaybePlayerBoard,
-  type ShipCoordinatesArgs,
-} from '@client/cayed';
+import { fetchMaybePlayerBoard, type ShipCoordinatesArgs } from '@client/cayed';
 import { address, isSome, type Address } from '@solana/kit';
 import { useSignMessage, useWalletAccountTransactionSigner } from '@solana/react';
 import { type SolanaSignMessageInput } from '@solana/wallet-standard-features';
@@ -24,6 +21,13 @@ import {
   type CellCoord,
 } from '@/lib/ships';
 import {
+  pickAuthoritativeGame,
+  toUiGame,
+  toUiPlayerBoard,
+  type UiGame,
+  type UiPlayerBoard,
+} from '@/lib/ui-accounts';
+import {
   AwaitingOpponentStage,
   BattleStage,
   ErrorStage,
@@ -33,13 +37,6 @@ import {
   RevealedStage,
 } from '@/pages/battleship/stages';
 import { fetchGameAccount } from '@/services/fetch-accounts';
-import {
-  pickAuthoritativeGame,
-  toUiGame,
-  toUiPlayerBoard,
-  type UiGame,
-  type UiPlayerBoard,
-} from '@/lib/ui-accounts';
 import { deriveGamePda, derivePlayerBoardPda } from '@/services/pda';
 
 const POLL_MS = 3000;
@@ -130,9 +127,7 @@ function BattleshipGameInner({
     status === 'Cancelled';
   const isPlacing = status === 'HidingShips' && !myShipsPlaced;
   const canAttack =
-    !gameOver &&
-    myShipsPlaced &&
-    (status === 'HidingShips' || status === 'InProgress');
+    !gameOver && myShipsPlaced && (status === 'HidingShips' || status === 'InProgress');
 
   // ── PDA derivation ──
   const pdaRef = useRef<{
@@ -165,7 +160,10 @@ function BattleshipGameInner({
     if (!opponentAddress) return;
     let cancelled = false;
     async function derive() {
-      const opponentBoardPda = await derivePlayerBoardPda(BigInt(gameId), opponentAddress!);
+      const opponentBoardPda = await derivePlayerBoardPda(
+        BigInt(gameId),
+        opponentAddress!
+      );
       if (cancelled) return;
       pdaRef.current.opponentBoardPda = opponentBoardPda;
     }
@@ -222,7 +220,11 @@ function BattleshipGameInner({
         const board = await tryFetchBoard(pdaRef.current.myBoardPda);
         if (board?.exists) {
           setMyBoard(prev => {
-            if (prev && prev.shipCoordinates.length > 0 && board.data.shipCoordinates.length === 0) {
+            if (
+              prev &&
+              prev.shipCoordinates.length > 0 &&
+              board.data.shipCoordinates.length === 0
+            ) {
               return prev;
             }
             return toUiPlayerBoard(board.data);
@@ -236,7 +238,7 @@ function BattleshipGameInner({
     } catch (err) {
       console.error('Fetch state error:', err);
     }
-  }, [gameService, gameId]);
+  }, [gameService]);
 
   // ── Register sign-message function with GameService (once) ──
   useEffect(() => {
@@ -408,9 +410,7 @@ function BattleshipGameInner({
         setError('You already attacked that cell.');
         await fetchState();
       } else if (
-        /invalid game status|InvalidGameStatus|game.*completed|AllShipsSunk/i.test(
-          msg
-        )
+        /invalid game status|InvalidGameStatus|game.*completed|AllShipsSunk/i.test(msg)
       ) {
         setError('Game is over — refreshing state.');
         await fetchState();

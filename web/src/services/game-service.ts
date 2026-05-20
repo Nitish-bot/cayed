@@ -77,11 +77,8 @@ function erWsUrl(): string {
 }
 
 function erValidatorAddress(): Address {
-  const raw =
-    import.meta.env.VITE_ER_VALIDATOR ?? import.meta.env.ER_VALIDATOR ?? '';
-  return address(
-    raw || 'MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo'
-  );
+  const raw = import.meta.env.VITE_ER_VALIDATOR ?? import.meta.env.ER_VALIDATOR ?? '';
+  return address(raw || 'MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo');
 }
 
 export const DEFAULT_GAME_SERVICE_CONFIG: GameServiceConfig = {

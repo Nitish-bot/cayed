@@ -79,7 +79,10 @@ export function getMissCells(board: BoardBitmapFields, gridSize: number): CellCo
 }
 
 /** All cells occupied by any ship on this board. */
-export function getOccupiedCells(board: BoardBitmapFields, gridSize: number): CellCoord[] {
+export function getOccupiedCells(
+  board: BoardBitmapFields,
+  gridSize: number
+): CellCoord[] {
   return bitmaskToCells(asBigInt(board.allShipsMask), gridSize);
 }
 

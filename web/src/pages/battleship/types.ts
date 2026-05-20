@@ -1,7 +1,7 @@
 import type { CellCoord } from '@/lib/ships';
+import type { UiGame, UiPlayerBoard } from '@/lib/ui-accounts';
 
 import type { ShipCoordinatesArgs } from '@client/cayed';
-import type { UiGame, UiPlayerBoard } from '@/lib/ui-accounts';
 import type { Address } from '@solana/kit';
 
 /** Props shared by all stage components. */

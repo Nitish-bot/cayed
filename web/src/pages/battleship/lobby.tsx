@@ -9,7 +9,6 @@ import { ChainContext } from '@/context/chain-context';
 import { useGameService } from '@/context/game-service-provider';
 import { SelectedWalletAccountContext } from '@/context/selected-wallet-account-context';
 import { useGames, type UiGameAccount } from '@/hooks/use-games';
-import type { UiGame } from '@/lib/ui-accounts';
 import {
   formatSol,
   gridDisplay,
@@ -17,6 +16,7 @@ import {
   MIN_WAGER_LAMPORTS,
   truncateAddress,
 } from '@/lib/constants';
+import type { UiGame } from '@/lib/ui-accounts';
 
 const LOBBY_POLL_MS = 10_000;
 

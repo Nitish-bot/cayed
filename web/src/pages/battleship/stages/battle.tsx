@@ -42,8 +42,7 @@ export function BattleStage({
     targetKey != null &&
     (attackHits.some(h => `${h.x},${h.y}` === targetKey) ||
       attackMisses.some(m => `${m.x},${m.y}` === targetKey));
-  const canFire =
-    canSelect && selectedTarget != null && !alreadyAttacked;
+  const canFire = canSelect && selectedTarget != null && !alreadyAttacked;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">

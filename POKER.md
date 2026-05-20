@@ -6,19 +6,19 @@
 
 ## Decision Summary
 
-| # | Decision | Rationale |
-|---|---|---|
-| 1 | Separate Anchor program (`programs/poker/`) | Avoids touching existing battleship code; no multi-game abstractions needed |
-| 2 | Heads-up No-Limit Texas Hold'em | Matches 2-player pattern; state accounts use `Vec<Pubkey>` for future N-player |
-| 3 | MagicBlock VRF for card shuffle | Provably fair, purpose-built for ER, single async step |
-| 4 | Single VRF call + `DealerDeck` PDA | One async pause; community cards copied progressively from private DealerDeck |
-| 5 | 1 lamport = 1 chip | No conversion math; matches Vault deposit pattern |
-| 6 | Single hand per session | Mirrors battleship lifecycle; create → play → settle → done |
-| 7 | Creator-set blinds with validation | `bb == 2 * sb`, `bb <= buy_in / 5`; flexible per-table |
-| 8 | Auto street advancement in `player_action` | No intermediate states; fewer transactions |
-| 9 | Payout via Magic Actions | `reveal_winner` schedules `payout_winner` as post-commit base-layer action |
-| 10 | Single test file, devnet-focused | `tests/poker.test.ts`; PER requires TEE validators (devnet only) |
-| 11 | Terminology: `PokerTable`, `PlayerHand`, `DealerDeck` | Clean domain language distinct from battleship |
+| #   | Decision                                              | Rationale                                                                      |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1   | Separate Anchor program (`programs/poker/`)           | Avoids touching existing battleship code; no multi-game abstractions needed    |
+| 2   | Heads-up No-Limit Texas Hold'em                       | Matches 2-player pattern; state accounts use `Vec<Pubkey>` for future N-player |
+| 3   | MagicBlock VRF for card shuffle                       | Provably fair, purpose-built for ER, single async step                         |
+| 4   | Single VRF call + `DealerDeck` PDA                    | One async pause; community cards copied progressively from private DealerDeck  |
+| 5   | 1 lamport = 1 chip                                    | No conversion math; matches Vault deposit pattern                              |
+| 6   | Single hand per session                               | Mirrors battleship lifecycle; create → play → settle → done                    |
+| 7   | Creator-set blinds with validation                    | `bb == 2 * sb`, `bb <= buy_in / 5`; flexible per-table                         |
+| 8   | Auto street advancement in `player_action`            | No intermediate states; fewer transactions                                     |
+| 9   | Payout via Magic Actions                              | `reveal_winner` schedules `payout_winner` as post-commit base-layer action     |
+| 10  | Single test file, devnet-focused                      | `tests/poker.test.ts`; PER requires TEE validators (devnet only)               |
+| 11  | Terminology: `PokerTable`, `PlayerHand`, `DealerDeck` | Clean domain language distinct from battleship                                 |
 
 ---
 
@@ -62,18 +62,18 @@ ephemeral-vrf-sdk = { version = "0.2.1", features = ["anchor"] }
 
 Program entry with `#[ephemeral]` + `#[program]`. Instructions:
 
-| Instruction | Runs on | Purpose |
-|---|---|---|
-| `init_poker_config` | Base | Initialize poker-specific protocol params |
-| `create_table` | Base | P1 creates table + deposits buy-in |
-| `join_table` | Base | P2 joins + deposits buy-in |
-| `deal_cards` | ER | Request VRF randomness |
-| `consume_randomness` | ER | VRF callback → shuffle deck, deal hole cards, store community in DealerDeck |
-| `player_action` | ER | Fold/Check/Call/Raise/AllIn; auto-advances streets and triggers showdown |
-| `reveal_winner` | ER | Commit + undelegate + clear permissions + schedule payout via Magic Action |
-| `payout_winner` | Base | `#[action]` target — CPI transfer from Vault to winner |
-| `create_permission` | Base | ER access control (same pattern as battleship) |
-| `delegate_pda` | Base | Delegate accounts to ER |
+| Instruction          | Runs on | Purpose                                                                     |
+| -------------------- | ------- | --------------------------------------------------------------------------- |
+| `init_poker_config`  | Base    | Initialize poker-specific protocol params                                   |
+| `create_table`       | Base    | P1 creates table + deposits buy-in                                          |
+| `join_table`         | Base    | P2 joins + deposits buy-in                                                  |
+| `deal_cards`         | ER      | Request VRF randomness                                                      |
+| `consume_randomness` | ER      | VRF callback → shuffle deck, deal hole cards, store community in DealerDeck |
+| `player_action`      | ER      | Fold/Check/Call/Raise/AllIn; auto-advances streets and triggers showdown    |
+| `reveal_winner`      | ER      | Commit + undelegate + clear permissions + schedule payout via Magic Action  |
+| `payout_winner`      | Base    | `#[action]` target — CPI transfer from Vault to winner                      |
+| `create_permission`  | Base    | ER access control (same pattern as battleship)                              |
+| `delegate_pda`       | Base    | Delegate accounts to ER                                                     |
 
 ---
 
@@ -281,6 +281,7 @@ stateDiagram-v2
 ```
 
 **Heads-up betting rules:**
+
 - **Pre-flop**: Dealer = small blind, non-dealer = big blind. Dealer acts first.
 - **Post-flop** (flop/turn/river): Non-dealer acts first.
 - Street complete when: both acted AND bets matched (or one player all-in).
@@ -316,6 +317,7 @@ MagicIntentBundleBuilder::new(payer, magic_context, magic_program)
 ```
 
 `payout_winner` (base-layer `#[action]` instruction):
+
 ```rust
 let total_pot = table.buy_in * 2;
 let fee = (total_pot * config.fee as u64) / 10_000;
@@ -331,33 +333,34 @@ let payout = total_pot - fee;
 #### [NEW] [tests/poker.test.ts](file:///home/nitishc/progmag/cayed/tests/poker.test.ts)
 
 Devnet-targeted test suite using same infrastructure as `cayed.test.ts`:
+
 - `@coral-xyz/anchor` + `@solana/web3.js`
 - Auth tokens for PER via `getAuthToken`
 - `sendAndConfirmER` helper with retry logic
 
-| Group | Test | Validates |
-|---|---|---|
-| **Config** | `inits poker config` | PokerConfig PDA created |
-| | `rejects re-init by different authority` | Unauthorized error |
-| **Create Table** | `creates table with permission + delegate` | PokerTable + PlayerHand + DealerDeck created, status=AwaitingPlayer |
-| | `rejects buy-in below minimum` | MinimumBuyIn error |
-| | `rejects invalid blind ratio` | InvalidBlindRatio error |
-| | `rejects blinds too large` | BlindsTooLarge error |
-| **Join Table** | `joins table + permission + delegate` | Status→Dealing, player added |
-| | `rejects self-join` | CannotJoinSelf error |
-| | `rejects 3rd player` | TableFull error |
-| **Deal** | `requests and receives VRF randomness` | deck_seed set, cards dealt, status→InProgress |
-| **Privacy** | `player sees own hand but not opponent` | PER read isolation |
-| | `nobody can read dealer deck` | DealerDeck PER isolation |
-| **Actions** | `rejects wrong turn` | InvalidTurn error |
-| | `player folds → opponent wins` | Status→Folded, correct winner |
-| | `check-check advances to flop` | 3 community cards revealed |
-| | `raise → call flow` | Bets matched, pot updated |
-| | `rejects raise below minimum` | RaiseTooSmall error |
-| | `rejects check when bet exists` | CannotCheck error |
-| | `all-in and call` | All chips committed, auto-run-out |
-| **Full Hand** | `plays complete hand to showdown` | All streets, evaluation, winner |
-| **Reveal** | `reveals winner + pays out via Magic Action` | State on base layer, winner balance increased |
+| Group            | Test                                         | Validates                                                           |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------------------- |
+| **Config**       | `inits poker config`                         | PokerConfig PDA created                                             |
+|                  | `rejects re-init by different authority`     | Unauthorized error                                                  |
+| **Create Table** | `creates table with permission + delegate`   | PokerTable + PlayerHand + DealerDeck created, status=AwaitingPlayer |
+|                  | `rejects buy-in below minimum`               | MinimumBuyIn error                                                  |
+|                  | `rejects invalid blind ratio`                | InvalidBlindRatio error                                             |
+|                  | `rejects blinds too large`                   | BlindsTooLarge error                                                |
+| **Join Table**   | `joins table + permission + delegate`        | Status→Dealing, player added                                        |
+|                  | `rejects self-join`                          | CannotJoinSelf error                                                |
+|                  | `rejects 3rd player`                         | TableFull error                                                     |
+| **Deal**         | `requests and receives VRF randomness`       | deck_seed set, cards dealt, status→InProgress                       |
+| **Privacy**      | `player sees own hand but not opponent`      | PER read isolation                                                  |
+|                  | `nobody can read dealer deck`                | DealerDeck PER isolation                                            |
+| **Actions**      | `rejects wrong turn`                         | InvalidTurn error                                                   |
+|                  | `player folds → opponent wins`               | Status→Folded, correct winner                                       |
+|                  | `check-check advances to flop`               | 3 community cards revealed                                          |
+|                  | `raise → call flow`                          | Bets matched, pot updated                                           |
+|                  | `rejects raise below minimum`                | RaiseTooSmall error                                                 |
+|                  | `rejects check when bet exists`              | CannotCheck error                                                   |
+|                  | `all-in and call`                            | All chips committed, auto-run-out                                   |
+| **Full Hand**    | `plays complete hand to showdown`            | All streets, evaluation, winner                                     |
+| **Reveal**       | `reveals winner + pays out via Magic Action` | State on base layer, winner balance increased                       |
 
 ---
 
@@ -383,45 +386,47 @@ Add poker domain terms to glossary. Update preamble to note the one-program-per-
 ## Verification Plan
 
 ### Automated Tests
+
 1. `anchor build` — both programs compile
 2. `anchor deploy --provider.cluster devnet` — poker program deployed
 3. `bun test --timeout 1000000 tests/poker.test.ts` — all poker tests pass against devnet
 4. `bun test --timeout 1000000 tests/cayed.test.ts` — battleship tests still pass (regression check)
 
 ### Manual Verification
+
 - Inspect IDL: `target/idl/poker.json`
 - Verify PER isolation: player can read own hand, cannot read opponent hand or dealer deck
-- Verify payout: winner's SOL balance increases by (buy_in * 2 - fee) after reveal
+- Verify payout: winner's SOL balance increases by (buy_in \* 2 - fee) after reveal
 
 ---
 
 ## File Summary
 
-| Action | Path | Purpose |
-|---|---|---|
-| NEW | `programs/poker/Cargo.toml` | Rust package config |
-| NEW | `programs/poker/src/lib.rs` | Program entry + instruction dispatch |
-| NEW | `programs/poker/src/errors.rs` | Error codes |
-| NEW | `programs/poker/src/state/mod.rs` | State module exports |
-| NEW | `programs/poker/src/state/config.rs` | PokerConfig |
-| NEW | `programs/poker/src/state/vault.rs` | PokerVault |
-| NEW | `programs/poker/src/state/table.rs` | PokerTable + enums |
-| NEW | `programs/poker/src/state/player_hand.rs` | PlayerHand (private) |
-| NEW | `programs/poker/src/state/dealer_deck.rs` | DealerDeck (private) |
-| NEW | `programs/poker/src/state/mb_helpers.rs` | PokerAccountType + PDA seed helpers |
-| NEW | `programs/poker/src/state/hand_eval.rs` | On-chain hand evaluator |
-| NEW | `programs/poker/src/state/deck.rs` | Fisher-Yates shuffle from VRF seed |
-| NEW | `programs/poker/src/instructions/mod.rs` | Instruction module exports |
-| NEW | `programs/poker/src/instructions/init_poker_config.rs` | Config init |
-| NEW | `programs/poker/src/instructions/create_table.rs` | Create table + buy-in deposit |
-| NEW | `programs/poker/src/instructions/join_table.rs` | Join table + buy-in deposit |
-| NEW | `programs/poker/src/instructions/deal_cards.rs` | Request VRF |
-| NEW | `programs/poker/src/instructions/consume_randomness.rs` | VRF callback → shuffle + deal |
-| NEW | `programs/poker/src/instructions/player_action.rs` | Fold/Check/Call/Raise/AllIn + auto-advance |
-| NEW | `programs/poker/src/instructions/reveal_winner.rs` | Commit + undelegate + Magic Action payout |
-| NEW | `programs/poker/src/instructions/payout_winner.rs` | `#[action]` base-layer CPI payout |
-| NEW | `programs/poker/src/instructions/create_permission.rs` | ER access control |
-| NEW | `programs/poker/src/instructions/delegate_pda.rs` | ER delegation |
-| NEW | `tests/poker.test.ts` | Full E2E test suite (devnet) |
-| MODIFY | `Anchor.toml` | Add poker program entry |
-| MODIFY | `CONTEXT.md` | Add poker glossary terms |
+| Action | Path                                                    | Purpose                                    |
+| ------ | ------------------------------------------------------- | ------------------------------------------ |
+| NEW    | `programs/poker/Cargo.toml`                             | Rust package config                        |
+| NEW    | `programs/poker/src/lib.rs`                             | Program entry + instruction dispatch       |
+| NEW    | `programs/poker/src/errors.rs`                          | Error codes                                |
+| NEW    | `programs/poker/src/state/mod.rs`                       | State module exports                       |
+| NEW    | `programs/poker/src/state/config.rs`                    | PokerConfig                                |
+| NEW    | `programs/poker/src/state/vault.rs`                     | PokerVault                                 |
+| NEW    | `programs/poker/src/state/table.rs`                     | PokerTable + enums                         |
+| NEW    | `programs/poker/src/state/player_hand.rs`               | PlayerHand (private)                       |
+| NEW    | `programs/poker/src/state/dealer_deck.rs`               | DealerDeck (private)                       |
+| NEW    | `programs/poker/src/state/mb_helpers.rs`                | PokerAccountType + PDA seed helpers        |
+| NEW    | `programs/poker/src/state/hand_eval.rs`                 | On-chain hand evaluator                    |
+| NEW    | `programs/poker/src/state/deck.rs`                      | Fisher-Yates shuffle from VRF seed         |
+| NEW    | `programs/poker/src/instructions/mod.rs`                | Instruction module exports                 |
+| NEW    | `programs/poker/src/instructions/init_poker_config.rs`  | Config init                                |
+| NEW    | `programs/poker/src/instructions/create_table.rs`       | Create table + buy-in deposit              |
+| NEW    | `programs/poker/src/instructions/join_table.rs`         | Join table + buy-in deposit                |
+| NEW    | `programs/poker/src/instructions/deal_cards.rs`         | Request VRF                                |
+| NEW    | `programs/poker/src/instructions/consume_randomness.rs` | VRF callback → shuffle + deal              |
+| NEW    | `programs/poker/src/instructions/player_action.rs`      | Fold/Check/Call/Raise/AllIn + auto-advance |
+| NEW    | `programs/poker/src/instructions/reveal_winner.rs`      | Commit + undelegate + Magic Action payout  |
+| NEW    | `programs/poker/src/instructions/payout_winner.rs`      | `#[action]` base-layer CPI payout          |
+| NEW    | `programs/poker/src/instructions/create_permission.rs`  | ER access control                          |
+| NEW    | `programs/poker/src/instructions/delegate_pda.rs`       | ER delegation                              |
+| NEW    | `tests/poker.test.ts`                                   | Full E2E test suite (devnet)               |
+| MODIFY | `Anchor.toml`                                           | Add poker program entry                    |
+| MODIFY | `CONTEXT.md`                                            | Add poker glossary terms                   |

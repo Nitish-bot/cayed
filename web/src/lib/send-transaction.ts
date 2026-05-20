@@ -56,9 +56,7 @@ async function isMagicBlockRouter(rpcHttpUrl: string): Promise<boolean> {
     const json = (await res.json()) as {
       result?: { blockhash?: string; lastValidBlockHeight?: number };
     };
-    return (
-      typeof json.result?.blockhash === 'string' && json.result.blockhash.length > 0
-    );
+    return typeof json.result?.blockhash === 'string' && json.result.blockhash.length > 0;
   } catch {
     return false;
   }
@@ -187,11 +185,7 @@ export async function sendTransactionWithWallet({
       throw new Error('Transaction confirmation timed out');
     }
     if (isWebsocketConfirmationError(err)) {
-      await confirmViaHttpPolling(
-        connection,
-        signature as Signature,
-        CONFIRM_TIMEOUT_MS
-      );
+      await confirmViaHttpPolling(connection, signature as Signature, CONFIRM_TIMEOUT_MS);
       return;
     }
     throw err;
